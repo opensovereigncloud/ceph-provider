@@ -247,6 +247,7 @@ func (s *Store[E]) Update(ctx context.Context, obj E) (E, error) {
 	}
 	obj.IncrementResourceVersion()
 
+	//Todo: update version
 	obj, err = s.set(ioCtx, obj)
 	if err != nil {
 		return utils.Zero[E](), err
