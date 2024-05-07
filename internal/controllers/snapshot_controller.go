@@ -324,7 +324,7 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 
 	rbdImg, err := librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
 	if err != nil {
-		if err != librbd.ErrNotFound {
+		if !errors.Is(err, librbd.ErrNotFound) {
 			return fmt.Errorf("failed to open rbd image: %w", err)
 		}
 
@@ -347,7 +347,9 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 	}
 
 	if err := rbdImg.Close(); err != nil {
-		return fmt.Errorf("unable to close snapshot: %w", err)
+		if !errors.Is(err, librbd.ErrImageNotOpen) {
+			return fmt.Errorf("unable to close snapshot: %w", err)
+		}
 	}
 
 	snapshot.Status.Digest = digest
