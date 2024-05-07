@@ -113,8 +113,8 @@ run-bucket: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	podman build --platform=linux/amd64 --target ceph-volume-provider -t ${CEPH_BUCKET_PROVIDER_IMG} . --load
-	podman build --platform=linux/amd64 --target ceph-bucket-provider -t ${CEPH_VOLUME_PROVIDER_IMG} . --load
+	podman build --platform=linux/amd64 --target ceph-bucket-provider -t ${CEPH_BUCKET_PROVIDER_IMG} . --load
+	podman build --platform=linux/amd64 --target ceph-volume-provider -t ${CEPH_VOLUME_PROVIDER_IMG} . --load
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
