@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.22.2-bookworm as builder
+FROM golang:1.22.3-bookworm as builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -107,7 +107,7 @@ COPY --from=ceph-volume-provider-builder /workspace/bin/ceph-volume-provider /ce
 
 # Build stage used for validation of the output-image
 # See validate-container-linux-* targets in Makefile
-FROM ceph-volume-provider as validation-image
+FROM ceph-volume-provider-image as validation-image
 
 COPY --from=busybox /usr/bin/ldd /usr/bin/find /usr/bin/xargs /usr/bin/
 COPY --from=builder /workspace/hack/print-missing-deps.sh /print-missing-deps.sh
