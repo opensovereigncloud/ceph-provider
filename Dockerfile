@@ -63,8 +63,8 @@ ENV LIB_DIR_PREFIX=aarch64
 ENV LIB_DIR_PREFIX_MINUS=aarch64
 
 
-FROM busybox:1.36.1-uclibc as busybox
-FROM distroless-$TARGETARCH as ceph-volume-provider-image
+FROM busybox:1.36.1-uclibc AS busybox
+FROM distroless-$TARGETARCH AS ceph-volume-provider-image
 WORKDIR /
 COPY --from=busybox /bin/sh /bin/sh
 COPY --from=busybox /bin/mkdir /bin/mkdir
@@ -116,7 +116,7 @@ RUN /print-missing-deps.sh
 
 
 # Final build stage, create the real Docker image with ENTRYPOINT
-FROM ceph-volume-provider-image as ceph-volume-provider
+FROM ceph-volume-provider-image AS ceph-volume-provider
 USER 65532:65532
 
 ENTRYPOINT ["/ceph-volume-provider"]
