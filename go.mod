@@ -6,9 +6,10 @@ require (
 	github.com/ceph/go-ceph v0.27.0
 	github.com/containerd/containerd v1.7.16
 	github.com/go-logr/logr v1.4.2
+	github.com/gogo/protobuf v1.3.2
 	github.com/google/addlicense v1.1.1
 	github.com/ironcore-dev/controller-utils v0.9.3
-	github.com/ironcore-dev/ironcore v0.1.3-0.20240724061641-c2f923ef40eb
+	github.com/ironcore-dev/ironcore v0.1.3-0.20240724072640-8ed128a847ff
 	github.com/ironcore-dev/ironcore-image v0.2.2
 	github.com/kube-object-storage/lib-bucket-provisioner v0.0.0-20221122204822-d1a8c34382f1
 	github.com/onsi/ginkgo/v2 v2.19.0
@@ -55,7 +56,6 @@ require (
 	github.com/go-openapi/jsonreference v0.20.5 // indirect
 	github.com/go-openapi/swag v0.22.10 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect

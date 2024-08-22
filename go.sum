@@ -560,8 +560,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/ironcore-dev/controller-utils v0.9.3 h1:sTrnxSzX5RrLf4B8KrAH2axSC+gxfJXphkV6df2GSsw=
 github.com/ironcore-dev/controller-utils v0.9.3/go.mod h1:djKnxDs0Hwxhhc0VmVY8tZnrOrElvrRV2jov/LiCZ2Y=
-github.com/ironcore-dev/ironcore v0.1.3-0.20240724061641-c2f923ef40eb h1:eiZSYhN3tW7P0lN007/vs6hPDzzQx9YVAAVh2QMBU0Y=
-github.com/ironcore-dev/ironcore v0.1.3-0.20240724061641-c2f923ef40eb/go.mod h1:OAq8mJxuR76Lq7HQDMwB11cWJrb/76nX1wBrXQfMrOw=
+github.com/ironcore-dev/ironcore v0.1.3-0.20240724072640-8ed128a847ff h1:601qtkjcxvqqAFTQg1TS6NTSyiN51DF2GJ+yX2Vl3Ic=
+github.com/ironcore-dev/ironcore v0.1.3-0.20240724072640-8ed128a847ff/go.mod h1:OAq8mJxuR76Lq7HQDMwB11cWJrb/76nX1wBrXQfMrOw=
 github.com/jmespath/go-jmespath v0.4.0/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/jmespath/go-jmespath/internal/testify v1.5.1/go.mod h1:L3OGu8Wl2/fWfCI6z80xFu9LTZmf1ZRjMHUOPmWr69U=
 github.com/jonboulle/clockwork v0.1.0/go.mod h1:Ii8DK3G1RaLaWxj9trq07+26W01tbo22gdxWY5EU2bo=
