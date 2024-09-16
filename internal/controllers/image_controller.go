@@ -12,15 +12,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ceph/go-ceph/rados"
 	librbd "github.com/ceph/go-ceph/rbd"
 	"github.com/containerd/containerd/reference"
 	"github.com/go-logr/logr"
+
 	providerapi "github.com/ironcore-dev/ceph-provider/api"
 	"github.com/ironcore-dev/ceph-provider/internal/encryption"
 	"github.com/ironcore-dev/ceph-provider/internal/round"
 	"github.com/ironcore-dev/ceph-provider/internal/utils"
+
 	"github.com/ironcore-dev/ironcore-image/oci/image"
 	apiutils "github.com/ironcore-dev/provider-utils/apiutils/api"
 	"github.com/ironcore-dev/provider-utils/eventutils/event"
@@ -232,10 +235,28 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		return fmt.Errorf("failed to delete image snapshots: %w", err)
 	}
 
-	if err := librbd.RemoveImage(ioCtx, ImageIDToRBDID(image.ID)); err != nil && !errors.Is(err, librbd.ErrNotFound) {
+	img, err := openImage(ioCtx, ImageIDToRBDID(image.ID))
+	if err != nil {
+		return err
+	}
+	defer closeImage(log, img)
+
+	data, err := json.Marshal(image)
+	if err != nil {
+		return fmt.Errorf("failed to marshal image obj: %w", err)
+	}
+
+	err = img.SetMetadata("ironcore-omap-backup", string(data))
+	if err != nil {
+		return err
+	}
+
+	// TODO make trash timeout configurable
+	if err := img.Trash(7 * 24 * time.Hour); err != nil && !errors.Is(err, librbd.ErrNotFound) {
 		return fmt.Errorf("failed to remove rbd image: %w", err)
 	}
-	log.V(2).Info("Rbd image deleted")
+
+	log.V(2).Info("Rbd image marked for deletion")
 
 	image.Finalizers = utils.DeleteSliceElement(image.Finalizers, ImageFinalizer)
 	if _, err := r.images.Update(ctx, image); store.IgnoreErrNotFound(err) != nil {
@@ -444,7 +465,7 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 	snapshotDigest := resolvedImg.Descriptor().Digest.String()
 	resolvedImageName := fmt.Sprintf("%s@%s", spec.Locator, snapshotDigest)
 
-	//TODO select later by label
+	// TODO select later by label
 	snap, err := r.snapshots.Get(ctx, snapshotDigest)
 	if err != nil {
 		switch {
