@@ -735,6 +735,8 @@ github.com/openshift/api v0.0.0-20250620202921-c3cf9bb5ccab h1:PmOv1Sq3awhLACPau
 github.com/openshift/api v0.0.0-20250620202921-c3cf9bb5ccab/go.mod h1:yk60tHAmHhtVpJQo3TwVYq2zpuP70iJIFDCmeKMIzPw=
 github.com/openshift/build-machinery-go v0.0.0-20200917070002-f171684f77ab/go.mod h1:b1BuldmJlbA/xYtdZvKi+7j5YGB44qJUJDZ9zwiNCfE=
 github.com/openshift/client-go v0.0.0-20210112165513-ebc401615f47/go.mod h1:u7NRAjtYVAKokiI9LouzTv4mhds8P4S1TwdVAfbjKSk=
+github.com/opensovereigncloud/ironcore-image v0.2.4-0.20241029154217-6de3bf28d739 h1:iphucdcfq68PKfZmO4p6I3YeKXuNI2CVPjPUkok6hmU=
+github.com/opensovereigncloud/ironcore-image v0.2.4-0.20241029154217-6de3bf28d739/go.mod h1:Q7vtl/YSR03a8ouJ80Zwre6AO59wGzZCN4p4u1xiKnc=
 github.com/pascaldekloe/goe v0.0.0-20180627143212-57f6aae5913c/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
 github.com/pborman/uuid v0.0.0-20170612153648-e790cca94e6c/go.mod h1:VyrYX9gd7irzKovcSS6BIIEwPRkP2Wm2m9ufcdFSJ34=
 github.com/pborman/uuid v1.2.0 h1:J7Q5mO4ysT1dv8hyrUGHb9+ooztCXu1D8MY8DZYsu3g=
