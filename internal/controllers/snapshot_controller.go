@@ -23,6 +23,7 @@ import (
 	"github.com/ironcore-dev/ceph-provider/internal/utils"
 	ironcoreimage "github.com/ironcore-dev/ironcore-image"
 	"github.com/ironcore-dev/ironcore-image/oci/image"
+
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -321,15 +322,22 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 	}
 	log.V(2).Info("Configured pool", "pool", r.pool)
 
-	roundedSize := round.OffBytes(snapshotSize)
-	if err = librbd.CreateImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), roundedSize, options); err != nil {
-		return fmt.Errorf("failed to create os rbd image: %w", err)
-	}
-	log.V(2).Info("Created rbd image", "bytes", roundedSize)
-
 	rbdImg, err := librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
 	if err != nil {
-		return fmt.Errorf("failed to open rbd image: %w", err)
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to open rbd image: %w", err)
+		}
+
+		roundedSize := round.OffBytes(snapshotSize)
+		if err = librbd.CreateImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), roundedSize, options); err != nil {
+			return fmt.Errorf("failed to create os rbd image: %w", err)
+		}
+		log.V(2).Info("Created rbd image", "bytes", roundedSize)
+
+		rbdImg, err = librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
+		if err != nil {
+			return fmt.Errorf("failed to open rbd image: %w", err)
+		}
 	}
 
 	if err := r.prepareSnapshotContent(log, rbdImg, rc); err != nil {
@@ -339,7 +347,9 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 	}
 
 	if err := rbdImg.Close(); err != nil {
-		return fmt.Errorf("unable to close snapshot: %w", err)
+		if !errors.Is(err, librbd.ErrImageNotOpen) {
+			return fmt.Errorf("unable to close snapshot: %w", err)
+		}
 	}
 
 	snapshot.Status.Digest = digest
