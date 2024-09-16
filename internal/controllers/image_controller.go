@@ -12,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ceph/go-ceph/rados"
 	librbd "github.com/ceph/go-ceph/rbd"
 	"github.com/containerd/containerd/reference"
 	"github.com/go-logr/logr"
+
 	providerapi "github.com/ironcore-dev/ceph-provider/api"
 	"github.com/ironcore-dev/ceph-provider/internal/encryption"
 	"github.com/ironcore-dev/ceph-provider/internal/event"
@@ -24,6 +26,7 @@ import (
 	"github.com/ironcore-dev/ceph-provider/internal/round"
 	"github.com/ironcore-dev/ceph-provider/internal/store"
 	"github.com/ironcore-dev/ceph-provider/internal/utils"
+
 	"github.com/ironcore-dev/ironcore-image/oci/image"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/workqueue"
@@ -135,7 +138,7 @@ type ImageReconciler struct {
 func (r *ImageReconciler) Start(ctx context.Context) error {
 	log := r.log
 
-	//todo make configurable
+	// todo make configurable
 	workerSize := 15
 
 	imgEventReg, err := r.imageEvents.AddHandler(event.HandlerFunc[*providerapi.Image](func(evt event.Event[*providerapi.Image]) {
@@ -222,10 +225,40 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		return nil
 	}
 
-	if err := librbd.RemoveImage(ioCtx, ImageIDToRBDID(image.ID)); err != nil && !errors.Is(err, librbd.ErrNotFound) {
-		return fmt.Errorf("failed to remove rbd image: %w", err)
+	imgExists := true
+	img, err := librbd.OpenImage(ioCtx, ImageIDToRBDID(image.ID), librbd.NoSnapshot)
+	if err != nil {
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to open image: %w", err)
+		} else {
+			imgExists = false
+		}
 	}
-	log.V(2).Info("Rbd image deleted")
+
+	if img != nil {
+		defer img.Close()
+	}
+
+	if imgExists {
+		data, err := json.Marshal(image)
+		if err != nil {
+			return fmt.Errorf("failed to marshal image obj: %w", err)
+		}
+
+		err = img.SetMetadata("onmetal-omap-backup", string(data))
+		if err != nil {
+			return err
+		}
+
+		// TODO make trash timeout configurable
+		if err := img.Trash(7 * 24 * time.Hour); err != nil && !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to remove rbd image: %w", err)
+		}
+
+		log.V(2).Info("Rbd image marked for deletion")
+	} else {
+		log.V(2).Info("Rbd image not found, it was probably already deleted")
+	}
 
 	image.Finalizers = utils.DeleteSliceElement(image.Finalizers, ImageFinalizer)
 	if _, err := r.images.Update(ctx, image); store.IgnoreErrNotFound(err) != nil {
@@ -283,7 +316,7 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 	snapshotDigest := resolvedImg.Descriptor().Digest.String()
 	resolvedImageName := fmt.Sprintf("%s@%s", spec.Locator, snapshotDigest)
 
-	//TODO select later by label
+	// TODO select later by label
 	snap, err := r.snapshots.Get(ctx, snapshotDigest)
 	if err != nil {
 		switch {
