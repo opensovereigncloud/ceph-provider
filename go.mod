@@ -148,7 +148,7 @@ replace (
 	github.com/portworx/sched-ops => github.com/portworx/sched-ops v0.20.4-openstorage-rc3
 )
 
-replace github.com/ironcore-dev/ironcore-image => github.com/opensovereigncloud/ironcore-image v0.2.3
+replace github.com/ironcore-dev/ironcore-image => github.com/opensovereigncloud/ironcore-image v0.2.4-0.20241029154217-6de3bf28d739
 
 exclude (
 	// This tag doesn't exist, but is imported by github.com/portworx/sched-ops.
