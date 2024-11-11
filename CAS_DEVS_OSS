@@ -1,0 +1,13 @@
+team: iaas
+assignees:
+  - "pradumna.panditrao"
+cveLabels:
+  - "type::3-cve"
+  - "stream::onMetal"
+  - "Component: Storage"
+  - "why::Security"
+  - "squad::Storage"
+dueDays: 13
+cve:
+  - repository: osc/upstream/ironcore-dev/ceph-bucket-provider
+  - repository: osc/upstream/ironcore-dev/ceph-volume-provider
