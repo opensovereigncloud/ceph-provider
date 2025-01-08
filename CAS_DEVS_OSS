@@ -3,7 +3,7 @@ assignees:
   - "pradumna.panditrao"
 cveLabels:
   - "type::3-cve"
-  - "stream::onMetal"
+  - "stream::infra-development"
   - "Component: Storage"
   - "why::Security"
   - "squad::Storage"
