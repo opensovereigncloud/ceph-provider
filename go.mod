@@ -94,7 +94,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.0 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/openshift/api v0.0.0-20241216151652-de9de05a8e43 // indirect
 	github.com/prometheus/client_golang v1.19.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -148,7 +148,7 @@ replace (
 	github.com/portworx/sched-ops => github.com/portworx/sched-ops v0.20.4-openstorage-rc3
 )
 
-replace github.com/ironcore-dev/ironcore-image => github.com/opensovereigncloud/ironcore-image v0.2.4-0.20241029154217-6de3bf28d739
+replace github.com/ironcore-dev/ironcore-image => github.com/opensovereigncloud/ironcore-image v0.2.4-0.20250402120957-5b12c022b015
 
 exclude (
 	// This tag doesn't exist, but is imported by github.com/portworx/sched-ops.
