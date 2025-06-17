@@ -25,6 +25,7 @@ const (
 type SnapshotStatus struct {
 	State  SnapshotState `json:"state"`
 	Digest string        `json:"digest"`
+	Size   uint64        `json:"size"`
 }
 
 type SnapshotSource struct {
