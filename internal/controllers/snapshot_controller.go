@@ -329,7 +329,7 @@ func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context,
 	}
 
 	snapshot.Status.Digest = digest
-	snapshot.Status.Size = int64(roundedSize)
+	snapshot.Status.Size = roundedSize
 	return nil
 }
 
@@ -347,7 +347,7 @@ func (r *SnapshotReconciler) reconcileVolumeImageSnapshot(ctx context.Context, l
 		return fmt.Errorf("failed to create volume image snapshot: %w", err)
 	}
 
-	snapshot.Status.Size = int64(img.Status.Size)
+	snapshot.Status.Size = img.Status.Size
 	return nil
 }
 
