@@ -46,6 +46,10 @@ type ImageReconcilerOptions struct {
 	Pool     string
 }
 
+var (
+	ErrImageSizeIsSmallerAsSnapshotSize = errors.New("image size is lower as snapshot size")
+)
+
 func NewImageReconciler(
 	log logr.Logger,
 	conn *rados.Conn,
@@ -631,6 +635,11 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 		log.V(1).Info("snapshot not found", "snapshotID", snapshot.ID)
 
 		return false, nil
+	}
+
+	if snapshot.Status.Size > image.Spec.Size {
+		r.Eventf(image.Metadata, corev1.EventTypeWarning, "ClonedImage", "image size has to be bigger as ironcore image %s: %d < %d", snapshot.Source.IronCoreImage, image.Spec.Size, snapshot.Status.Size)
+		return false, fmt.Errorf("snapshot ironcore image %s: %w (%d < %d)", snapshot.Source.IronCoreImage, ErrImageSizeIsSmallerAsSnapshotSize, image.Spec.Size, snapshot.Status.Size)
 	}
 
 	if snapshot.Status.State != providerapi.SnapshotStatePopulated {
