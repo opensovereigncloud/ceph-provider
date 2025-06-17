@@ -290,6 +290,31 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 	}
 
 	if snapshot.Status.State == providerapi.SnapshotStatePopulated {
+		// TODO: this logic can be deleted later. it is important just for update of already created snapshots
+		if snapshot.Status.Size == 0 {
+			var rbdImg *librbd.Image
+			rbdImg, err = librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
+			if err != nil {
+				return fmt.Errorf("failed to open snapshot rbd image: %w", err)
+			}
+
+			defer func() {
+				closeErr := rbdImg.Close()
+				if !errors.Is(closeErr, librbd.ErrImageNotOpen) {
+					log.Error(fmt.Errorf("unable to close snapshot: %w", closeErr), "image wasn't properly closed")
+				}
+			}()
+
+			snapshot.Status.Size, err = rbdImg.GetSize()
+			if err != nil {
+				return fmt.Errorf("failed to get size of snapshot image: %w", err)
+			}
+
+			_, err = r.store.Update(ctx, snapshot)
+			if err != nil {
+				return fmt.Errorf("failed to update snapshot size: %w", err)
+			}
+		}
 		log.V(1).Info("Snapshot already populated")
 		return nil
 	}
@@ -320,17 +345,18 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 	}
 	log.V(2).Info("Configured pool", "pool", r.pool)
 
+	snapshot.Status.Size = round.OffBytes(snapshotSize)
+
 	rbdImg, err := librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
 	if err != nil {
 		if !errors.Is(err, librbd.ErrNotFound) {
 			return fmt.Errorf("failed to open rbd image: %w", err)
 		}
 
-		roundedSize := round.OffBytes(snapshotSize)
-		if err = librbd.CreateImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), roundedSize, options); err != nil {
+		if err = librbd.CreateImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), snapshot.Status.Size, options); err != nil {
 			return fmt.Errorf("failed to create os rbd image: %w", err)
 		}
-		log.V(2).Info("Created rbd image", "bytes", roundedSize)
+		log.V(2).Info("Created rbd image", "bytes", snapshot.Status.Size)
 
 		rbdImg, err = librbd.OpenImage(ioCtx, SnapshotIDToRBDID(snapshot.ID), librbd.NoSnapshot)
 		if err != nil {
