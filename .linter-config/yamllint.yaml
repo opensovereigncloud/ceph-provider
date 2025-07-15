@@ -1,0 +1,24 @@
+---
+
+extends: default
+
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+  - '.yamllint'
+
+# TO-DO (galantsev) Define which files should be linting and fix them (if needed)
+ignore: |
+  .linter-config/*
+  .github/workflows/*
+
+rules:
+  line-length: disable
+  document-start: disable
+  indentation: disable
+  comments-indentation: disable
+  comments: disable
+  empty-lines:
+    max-start: 1
+  truthy:
+    level: warning
