@@ -1,5 +1,175 @@
+
 stages:
+  - lint
+  - build
   - post-processing
+
+variables:
+  TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common/pipeline-community"
+  CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-gitlab-runner-linter:alpine-latest-0.8"
+  GO_BUILD_IMG: "mtr.devops.telekom.de/osc/onmetal/container-images/go:libvirt-provider-go-1.24.1-alpine-3.21.3"
+
+.run-on-go-change:
+  rules:
+    - changes:
+        compare_to: 'osc/main'
+        paths:
+          - '**/*.go'
+          - 'go.mod'
+          - 'go.sum'
+
+yaml-lint:
+  stage: lint
+  needs: []
+  variables:
+    YAML_LINT_CONFIG: './.linter-config/yamllint.yaml'
+  image: "${CI_LINTER_IMG}"
+  rules:
+    - changes:
+        compare_to: 'osc/main'
+        paths:
+          - "**/*.yaml"
+          - "**/*.yml"
+  script:
+    - |
+      if [[ -f "${YAML_LINT_CONFIG}" ]]; then
+        cfg="-c ${YAML_LINT_CONFIG}"
+      fi
+      yamllint -f colored ${cfg} . && echo "Linting was successful."
+  allow_failure: true
+
+file-lint:
+  stage: lint
+  needs: []
+  allow_failure: true
+  variables:
+    FILES_LINT_CONFIG: './.linter-config/file-lint.conf'
+  image: "${CI_LINTER_IMG}"
+  rules:
+    - changes:
+        compare_to: 'osc/main'
+        paths:
+          - "**/*" # To ensure it won't run on empty commits
+  script:
+    - if [[ ${PIPELINE_DEBUG} == 1 ]]; then debug_flag="-x"; fi
+    - if [[ -f "${FILES_LINT_CONFIG}" ]]; then cfg="--config ${FILES_LINT_CONFIG}"; fi
+    - echo "${cfg}"
+    - bash ${debug_flag} file-empty ${cfg} --path .
+    - bash ${debug_flag} file-cr ${cfg} --path .
+    - bash ${debug_flag} file-crlf ${cfg} --path .
+    - bash ${debug_flag} file-nullbyte ${cfg} --path .
+    - bash ${debug_flag} file-trailing-single-newline ${cfg} --path .
+    - bash ${debug_flag} file-trailing-space ${cfg} --path .
+    - bash ${debug_flag} file-utf8 ${cfg} --path .
+    - bash ${debug_flag} file-utf8-bom ${cfg} --path .
+
+markdown-lint:
+  stage: lint
+  needs: []
+  allow_failure: true
+  variables:
+    MARKDOWN_LINT_CONFIG: './.linter-config/mdlrc'
+    MARKDOWN_LINT_IGNORE_CONFIG: "./.linter-config/.markdownlintignore"
+  image: "${CI_LINTER_IMG}"
+  rules:
+    - changes:
+        compare_to: 'osc/main'
+        paths:
+          - "**/*.md"
+  script:
+    - |
+      # copy markdown ignore config if exists
+      if [[ -f "${MARKDOWN_LINT_IGNORE_CONFIG}" ]]; then
+        cp "${MARKDOWN_LINT_IGNORE_CONFIG}" .
+      fi
+      if [[ -f "${MARKDOWN_LINT_CONFIG}" ]]; then
+        cfg="--config ${MARKDOWN_LINT_CONFIG}"
+      fi
+      { find -iname '*.md' -type f \
+        | xargs markdownlint ${cfg}; } && echo "Linting was successful."
+
+shell-lint:
+  stage: lint
+  needs: []
+  allow_failure: true
+  image:
+    name: "mtr.devops.telekom.de/osc/onmetal/container-images/shellcheck:0.10.0-alpine-3.21.2"
+    entrypoint:
+      - /bin/ash
+      - -c
+  rules:
+    - changes:
+        compare_to: 'osc/main'
+        paths:
+          - "**/*.sh"
+  variables:
+    SHELL_LINT_EXCLUDES: .linter-config/shellcheck-excludes
+  script:
+    - |
+      set -euo pipefail
+
+      # find all shell scripts
+      filelist=$(find . -iname '*.sh' -type f)
+
+      echo -e "[INFO]: Files to lint: ${filelist}"
+
+      if [[ -f "${SHELL_LINT_EXCLUDES}" ]]; then
+        # read file, remove comments, and empty lines
+        # return an empty string to mask grep's return value
+        excludes=$(grep -v "^#" "${SHELL_LINT_EXCLUDES}" | grep -v '^[ \t]*$')
+      else
+        excludes=""
+      fi
+
+      echo -e "[INFO]: Exclude list: ${excludes}"
+
+      # filter excludes from filelist
+      if [[ -z "${excludes}" ]]; then
+        echo "[INFO]: No .sh files excluded."
+      else
+        for exclude in ${excludes}; do
+          filelist=$(echo "${filelist}" | grep -v "${exclude}")
+        done
+      fi
+
+      if [[ -z "${filelist}" ]]; then
+        echo "[INFO]: Nothing for linting."
+        exit 0
+      fi
+
+      echo -e "[INFO]: Filtered list of files: ${filelist}"
+
+      echo "${filelist}" | xargs shellcheck --rcfile .linter-config/shellcheckrc
+      echo "[INFO]: Linting was successful."
+
+go-lint:
+  extends: .run-on-go-change
+  stage: lint
+  needs: []
+  allow_failure: true
+  image:
+    name: "${GO_BUILD_IMG}"
+    entrypoint: ["/bin/ash", "-c"]
+  script:
+    - make lint
+
+build-volume:
+  extends: .run-on-go-change
+  stage: build
+  image:
+    name: "${GO_BUILD_IMG}"
+    entrypoint: ["/bin/ash", "-c"]
+  script:
+    - make build-volume
+
+build-bucket:
+  extends: .run-on-go-change
+  stage: build
+  image:
+    name: "${GO_BUILD_IMG}"
+    entrypoint: ["/bin/ash", "-c"]
+  script:
+    - make build-bucket
 
 include:
   - component: 'gitlab.devops.telekom.de/cas-devs/osc/common/pipeline-community/components/mtr/configure-repo@stable'
