@@ -1,0 +1,7 @@
+# shellcheck-excludes
+
+# list the files and directories one by one, relative to repo root
+# start lines with "./", don't use trailing slashes
+
+./vendor
+./artifacts
