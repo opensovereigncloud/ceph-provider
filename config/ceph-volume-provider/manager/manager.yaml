@@ -90,4 +90,4 @@ spec:
       terminationGracePeriodSeconds: 10
       volumes:
         - name: var-run
-          emptyDir: { }
+          emptyDir: {}
