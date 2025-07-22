@@ -1,16 +1,16 @@
 # Usage Guides
 
-This section provides an overview on how `Volume`s from the [ironcore](https://github.com/ironcore-dev/ironcore) project can be provisioned using the `ceph-provider` provider. The samples are equivalent for `Bucket`s. 
+This section provides an overview on how `Volume`s from the [ironcore](https://github.com/ironcore-dev/ironcore) project can be provisioned using the `ceph-provider` provider. The samples are equivalent for `Bucket`s.
 
 ## Available Pools and Classes
 
-As a user you can request storage by creating a `Volume`. It will be allocated in the referenced `VolumePool`. 
-The `VolumeClasses` define the capabilities in terms of IOPS, BPS limits and other resource requirements. 
+As a user you can request storage by creating a `Volume`. It will be allocated in the referenced `VolumePool`.
+The `VolumeClasses` define the capabilities in terms of IOPS, BPS limits and other resource requirements.
 
 Get the available `VolumePools` with the corresponding `VolumeClasses`
 
 ```shell
-kubectl get volumeclasses 
+kubectl get volumeclasses
 NAME   AGE
 fast   4d18h
 slow   4d18h
@@ -41,7 +41,7 @@ spec:
 ```
 
 ```shell
-kubectl apply -f sample-volume.yaml 
+kubectl apply -f sample-volume.yaml
 volume.storage.ironcore.dev/sample-volume created
 ```
 

@@ -5,7 +5,7 @@
 [![GitHub License](https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=blue)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
 
-`ceph-provider` is a Ceph based provider implementation of the [ironcore](https://github.com/ironcore-dev/ironcore) `Volume` 
+`ceph-provider` is a Ceph based provider implementation of the [ironcore](https://github.com/ironcore-dev/ironcore) `Volume`
 and `Bucket` types.
 
 Please consult the [project documentation](https://ironcore-dev.github.io/ceph-provider/) for additional information.
@@ -22,11 +22,11 @@ kubectl apply -f config/samples/
 ```
 
 2. Build and push your image to the location specified by `IMG`:
-	
+
 ```sh
 make docker-build docker-push IMG=<some-registry>/ceph-provider:tag
 ```
-	
+
 3. Deploy the controller to the cluster with the image specified by `IMG`:
 
 ```sh
@@ -47,8 +47,8 @@ We'd love to get feedback from you. Please report bugs, suggestions or post ques
 ### How it works
 This project aims to follow the Kubernetes [Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
 
-It uses [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/) 
-which provides a reconcile function responsible for synchronizing resources untile the desired state is reached on the cluster 
+It uses [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/)
+which provides a reconcile function responsible for synchronizing resources untile the desired state is reached on the cluster
 
 ### Test It Out
 
