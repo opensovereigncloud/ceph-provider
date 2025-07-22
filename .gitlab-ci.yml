@@ -36,12 +36,10 @@ yaml-lint:
         cfg="-c ${YAML_LINT_CONFIG}"
       fi
       yamllint -f colored ${cfg} . && echo "Linting was successful."
-  allow_failure: true
 
 file-lint:
   stage: lint
   needs: []
-  allow_failure: true
   variables:
     FILES_LINT_CONFIG: './.linter-config/file-lint.conf'
   image: "${CI_LINTER_IMG}"
@@ -91,7 +89,6 @@ markdown-lint:
 shell-lint:
   stage: lint
   needs: []
-  allow_failure: true
   image:
     name: "mtr.devops.telekom.de/osc/onmetal/container-images/shellcheck:0.10.0-alpine-3.21.2"
     entrypoint:
