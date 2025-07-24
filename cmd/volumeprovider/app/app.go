@@ -36,6 +36,7 @@ type Options struct {
 	Address string
 
 	PathSupportedVolumeClasses string
+	SnapshotInactivityTimeout  time.Duration
 
 	Ceph CephOptions
 }
@@ -65,6 +66,7 @@ func (o *Options) Defaults() {
 	o.Ceph.BurstFactor = 10
 	o.Ceph.BurstDurationInSeconds = 15
 	o.Ceph.PopulatorBufferSize = 5 * 1024 * 1024
+	o.SnapshotInactivityTimeout = 168 * time.Hour // Default to 7 days for snapshot inactivity timeout
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -88,6 +90,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&o.Ceph.VolumeEventStoreOptions.MaxEvents, "volume-event-max-events", 100, "Maximum number of volume events that can be stored.")
 	fs.DurationVar(&o.Ceph.VolumeEventStoreOptions.TTL, "volume-event-ttl", 5*time.Minute, "Time to live for volume events.")
 	fs.DurationVar(&o.Ceph.VolumeEventStoreOptions.ResyncInterval, "volume-event-resync-interval", 1*time.Minute, "Interval for resynchronizing the volume events.")
+	fs.DurationVar(&o.SnapshotInactivityTimeout, "snapshot-inactivity-timeout", o.SnapshotInactivityTimeout, "Duration after which an unused populated snapshot is marked for deletion. Set to 0 to disable automatic deletion.")
 }
 
 func (o *Options) MarkFlagsRequired(cmd *cobra.Command) {
@@ -279,6 +282,7 @@ func Run(ctx context.Context, opts Options) error {
 		controllers.SnapshotReconcilerOptions{
 			Pool:                opts.Ceph.Pool,
 			PopulatorBufferSize: opts.Ceph.PopulatorBufferSize,
+			InactivityTimeout:   opts.SnapshotInactivityTimeout,
 		},
 	)
 	if err != nil {
