@@ -23,6 +23,7 @@ import (
 	"github.com/ironcore-dev/ironcore-image/oci/image"
 	"github.com/ironcore-dev/provider-utils/eventutils/event"
 	"github.com/ironcore-dev/provider-utils/storeutils/store"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -30,6 +31,7 @@ type SnapshotReconcilerOptions struct {
 	Pool                string
 	PopulatorBufferSize int64
 	WorkerSize          int
+	InactivityTimeout   time.Duration
 }
 
 func NewSnapshotReconciler(
@@ -73,6 +75,10 @@ func NewSnapshotReconciler(
 		opts.WorkerSize = 15
 	}
 
+	if opts.InactivityTimeout < 0 {
+		return nil, fmt.Errorf("InactivityTimeout must not be negative")
+	}
+
 	return &SnapshotReconciler{
 		log:                 log,
 		conn:                conn,
@@ -84,6 +90,7 @@ func NewSnapshotReconciler(
 		pool:                opts.Pool,
 		populatorBufferSize: opts.PopulatorBufferSize,
 		workerSize:          opts.WorkerSize,
+		inactivityTimeout:   opts.InactivityTimeout,
 	}, nil
 }
 
@@ -100,8 +107,8 @@ type SnapshotReconciler struct {
 
 	pool                string
 	populatorBufferSize int64
-
-	workerSize int
+	inactivityTimeout   time.Duration
+	workerSize          int
 }
 
 func (r *SnapshotReconciler) Start(ctx context.Context) error {
@@ -232,6 +239,57 @@ func (r *SnapshotReconciler) deleteSnapshot(ctx context.Context, log logr.Logger
 	return nil
 }
 
+func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *providerapi.Snapshot, ioCtx *rados.IOContext) (bool, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	rbdImageID, snapshotID, err := getSnapshotSourceDetails(snapshot)
+	if err != nil {
+		return false, fmt.Errorf("failed to get snapshot source details: %w", err)
+	}
+
+	img, err := librbd.OpenImage(ioCtx, rbdImageID, snapshotID)
+	if err != nil {
+		if errors.Is(err, librbd.ErrNotFound) {
+			log.V(2).Info("RBD image not found, not in use.", "rbdImage", rbdImageID)
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to open RBD image %s to check usage: %w", rbdImageID, err)
+	}
+	defer func() {
+		if closeErr := img.Close(); closeErr != nil {
+			log.Error(closeErr, "failed to close RBD image after usage check")
+		}
+	}()
+
+	pools, childrenImgs, err := img.ListChildren()
+	if err != nil {
+		return false, fmt.Errorf("failed to list children for RBD image %s: %w", rbdImageID, err)
+	}
+
+	if len(pools) > 0 || len(childrenImgs) > 0 {
+		log.V(2).Info("RBD image is in use (has children)", "childrenPoolCount", len(pools), "childrenImageCount", len(childrenImgs), "childrenPools", pools, "childrenImages", childrenImgs)
+		return true, nil
+	}
+
+	log.V(2).Info("RBD image is not in use (no children)")
+	return false, nil
+}
+
+// setLastPopulatedTimeIfZero sets the snapshot's LastPopulatedTime if it is currently its zero value (i.e., unset).
+// This timestamp marks the point of initial successful population, and is not continuously updated
+// during subsequent reconciliations to preserve its meaning as the original ready time.
+func (r *SnapshotReconciler) setLastPopulatedTimeIfZero(ctx context.Context, log logr.Logger, snapshot *providerapi.Snapshot, now metav1.Time) error {
+	if snapshot.Status.LastPopulatedTime.IsZero() {
+		log = logr.FromContextOrDiscard(ctx)
+		log.V(1).Info("Populated snapshot missing LastPopulatedTime, setting it.")
+		snapshot.Status.LastPopulatedTime = now
+		if _, err := r.store.Update(ctx, snapshot); err != nil {
+			return fmt.Errorf("failed to set LastPopulatedTime: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) error {
 	log := logr.FromContextOrDiscard(ctx)
 	ioCtx, err := r.conn.OpenIOContext(r.pool)
@@ -246,10 +304,13 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 		if !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("failed to fetch snapshot from store: %w", err)
 		}
+		log.V(2).Info("Snapshot object not found in store, skipping reconciliation")
 		return nil
 	}
 
 	if snapshot.DeletedAt != nil {
+		log.V(1).Info("Snapshot has DeletedAt timestamp, initiating deletion", "deletedAt", snapshot.DeletedAt)
+		// Pass the computed rbdImageID to the deleteSnapshot helper
 		if err := r.deleteSnapshot(ctx, log, ioCtx, snapshot); err != nil {
 			return fmt.Errorf("failed to delete snapshot: %w", err)
 		}
@@ -257,16 +318,57 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 		return nil
 	}
 
-	if snapshot.Status.State == providerapi.SnapshotStateReady {
-		log.V(1).Info("Snapshot already populated")
-		return nil
-	}
-
 	if !slices.Contains(snapshot.Finalizers, SnapshotFinalizer) {
+		log.V(1).Info("Adding finalizer to snapshot")
 		snapshot.Finalizers = append(snapshot.Finalizers, SnapshotFinalizer)
 		if _, err := r.store.Update(ctx, snapshot); err != nil {
 			return fmt.Errorf("failed to set finalizers: %w", err)
 		}
+		return nil
+	}
+
+	if snapshot.Status.State == providerapi.SnapshotStateReady {
+		log.V(1).Info("Snapshot already populated")
+		now := metav1.Now()
+		if err := r.setLastPopulatedTimeIfZero(ctx, log, snapshot, now); err != nil {
+			return fmt.Errorf("failed to ensure LastPopulatedTime is set: %w", err)
+		}
+
+		// Proceed with inactivity cleanup if timeout is configured.
+		if r.inactivityTimeout <= 0 {
+			log.V(2).Info("Inactivity timeout is 0 or negative; skipping inactivity check for populated snapshot.")
+			return nil
+		}
+
+		populatedTime := snapshot.Status.LastPopulatedTime.Time
+		expirationTime := populatedTime.Add(r.inactivityTimeout)
+		if !expirationTime.Before(now.Time) {
+			requeueAfter := time.Until(expirationTime)
+			if requeueAfter > 0 {
+				log.V(2).Info("Snapshot populated but within inactivity timeout, re-queueing.",
+					"remainingTime", requeueAfter)
+				r.queue.AddAfter(id, requeueAfter)
+			}
+			return nil
+		}
+		log.V(1).Info("Snapshot is past its inactivity timeout, checking if in use.",
+			"populatedTime", populatedTime, "inactivityTimeout", r.inactivityTimeout)
+
+		inUse, err := r.isSnapshotInUse(ctx, snapshot, ioCtx)
+		if err != nil {
+			return fmt.Errorf("failed to determine if snapshot is in use for inactivity check: %w", err)
+		}
+		if !inUse {
+			log.V(1).Info("Snapshot is unused and past inactivity timeout, marking for deletion.")
+			snapshot.DeletedAt = &now.Time
+			if _, err := r.store.Update(ctx, snapshot); err != nil {
+				return fmt.Errorf("failed to mark unused snapshot for deletion: %w", err)
+			}
+			return nil
+		}
+
+		log.V(2).Info("Snapshot is in use despite inactivity timeout, not marking for deletion.")
+		return nil
 	}
 
 	switch {
@@ -292,6 +394,7 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 
 	return nil
 }
+
 func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context, log logr.Logger, ioCtx *rados.IOContext, snapshot *providerapi.Snapshot) error {
 	rc, snapshotSize, digest, err := r.openIroncoreImageSource(ctx, snapshot.Source.IronCoreImage)
 	if err != nil {
@@ -330,6 +433,9 @@ func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context,
 
 	snapshot.Status.Digest = digest
 	snapshot.Status.Size = roundedSize
+	nowAtPopulated := metav1.Now()
+	snapshot.Status.LastPopulatedTime = nowAtPopulated
+	log.V(1).Info("Snapshot populated successfully, recording LastPopulatedTime.")
 	return nil
 }
 
