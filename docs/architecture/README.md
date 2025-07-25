@@ -15,6 +15,7 @@ The `ceph-volume-provider` interacts directly with a defined `ceph cluster`.
 A `Volume` is provisioned by creating a `ceph image`. If needed, an image is created with a pre-defined `os image`.
 
 The following diagram visualizes the interplay of the different components:
+
 ```mermaid
 graph TD
     C([ceph-volume-provider])
@@ -35,6 +36,7 @@ The `ceph-bucket-provider` utilizes `rook` CRD's to back the ironcore `Bucket` r
 Rook ensures that a `ObjectBucketClaim` (and an access secret) is being reconciled.
 
 The following diagram visualizes the interplay of the different components:
+
 ```mermaid
 graph TD
     C([ceph-bucket-provider])

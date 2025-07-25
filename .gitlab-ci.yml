@@ -64,7 +64,6 @@ file-lint:
 markdown-lint:
   stage: lint
   needs: []
-  allow_failure: true
   variables:
     MARKDOWN_LINT_CONFIG: './.linter-config/mdlrc'
     MARKDOWN_LINT_IGNORE_CONFIG: "./.linter-config/.markdownlintignore"
