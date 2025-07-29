@@ -18,6 +18,12 @@ variables:
           - 'go.mod'
           - 'go.sum'
 
+default:
+  tags:
+    - docker
+    - pes
+    - osc
+
 yaml-lint:
   stage: lint
   needs: []
@@ -142,7 +148,6 @@ go-lint:
   extends: .run-on-go-change
   stage: lint
   needs: []
-  allow_failure: true
   image:
     name: "${GO_BUILD_IMG}"
     entrypoint: ["/bin/ash", "-c"]

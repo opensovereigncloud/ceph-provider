@@ -153,7 +153,7 @@ func (r *SnapshotReconciler) processNextWorkItem(ctx context.Context, log logr.L
 	log = log.WithValues("snapshotId", id)
 	ctx = logr.NewContext(ctx, log)
 
-	if err := r.reconcileSnapshot(ctx, id); err != nil {
+	if err := r.reconcileSnapshot(ctx, log, id); err != nil {
 		log.Error(err, "failed to reconcile snapshot")
 		r.queue.AddRateLimited(id)
 		return true
@@ -280,7 +280,6 @@ func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *prov
 // during subsequent reconciliations to preserve its meaning as the original ready time.
 func (r *SnapshotReconciler) setLastPopulatedTimeIfZero(ctx context.Context, log logr.Logger, snapshot *providerapi.Snapshot, now metav1.Time) error {
 	if snapshot.Status.LastPopulatedTime.IsZero() {
-		log = logr.FromContextOrDiscard(ctx)
 		log.V(1).Info("Populated snapshot missing LastPopulatedTime, setting it.")
 		snapshot.Status.LastPopulatedTime = now
 		if _, err := r.store.Update(ctx, snapshot); err != nil {
@@ -290,8 +289,7 @@ func (r *SnapshotReconciler) setLastPopulatedTimeIfZero(ctx context.Context, log
 	return nil
 }
 
-func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) error {
-	log := logr.FromContextOrDiscard(ctx)
+func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger, id string) error {
 	ioCtx, err := r.conn.OpenIOContext(r.pool)
 	if err != nil {
 		return fmt.Errorf("unable to get io context: %w", err)
