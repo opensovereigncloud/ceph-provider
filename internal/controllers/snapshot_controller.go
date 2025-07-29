@@ -172,7 +172,7 @@ func (r *SnapshotReconciler) processNextWorkItem(ctx context.Context, log logr.L
 	log = log.WithValues("snapshotId", id)
 	ctx = logr.NewContext(ctx, log)
 
-	if err := r.reconcileSnapshot(ctx, id); err != nil {
+	if err := r.reconcileSnapshot(ctx, log, id); err != nil {
 		log.Error(err, "failed to reconcile snapshot")
 		r.queue.AddRateLimited(id)
 		return true
@@ -304,8 +304,7 @@ func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *prov
 	return false, nil
 }
 
-func (r *SnapshotReconciler) backfillSnapshotSize(ctx context.Context, log logr.Logger, ioCtx *rados.IOContext, snapshot *providerapi.Snapshot, rbdImageID string) error {
-	log = logr.FromContextOrDiscard(ctx)
+func (r *SnapshotReconciler) backfillSnapshotSize(ctx context.Context, ioCtx *rados.IOContext, log logr.Logger, snapshot *providerapi.Snapshot, rbdImageID string) error {
 	log.V(1).Info("Attempting to backfill size for populated snapshot with 0 size.", "rbdImageID", rbdImageID)
 
 	rbdImg, err := librbd.OpenImage(ioCtx, rbdImageID, librbd.NoSnapshot)
@@ -338,7 +337,6 @@ func (r *SnapshotReconciler) backfillSnapshotSize(ctx context.Context, log logr.
 // during subsequent reconciliations to preserve its meaning as the original ready time.
 func (r *SnapshotReconciler) setLastPopulatedTimeIfZero(ctx context.Context, log logr.Logger, snapshot *providerapi.Snapshot, now metav1.Time) error {
 	if snapshot.Status.LastPopulatedTime.IsZero() {
-		log = logr.FromContextOrDiscard(ctx)
 		log.V(1).Info("Populated snapshot missing LastPopulatedTime, setting it.")
 		snapshot.Status.LastPopulatedTime = now
 		if _, err := r.store.Update(ctx, snapshot); err != nil {
@@ -348,8 +346,7 @@ func (r *SnapshotReconciler) setLastPopulatedTimeIfZero(ctx context.Context, log
 	return nil
 }
 
-func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) error {
-	log := logr.FromContextOrDiscard(ctx)
+func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger, id string) error {
 	ioCtx, err := r.conn.OpenIOContext(r.pool)
 	if err != nil {
 		return fmt.Errorf("unable to get io context: %w", err)
@@ -390,7 +387,7 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, id string) e
 
 		// TODO: this logic can be deleted later. it is important just for update of already created snapshots
 		if snapshot.Status.Size == 0 {
-			if err := r.backfillSnapshotSize(ctx, log, ioCtx, snapshot, rbdImageID); err != nil {
+			if err := r.backfillSnapshotSize(ctx, ioCtx, log, snapshot, rbdImageID); err != nil {
 				return fmt.Errorf("failed to backfill snapshot size: %w", err)
 			}
 			return nil
