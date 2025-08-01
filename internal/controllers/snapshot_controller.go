@@ -486,6 +486,16 @@ func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rado
 	}
 	defer closeImage(log, rbdImg)
 
+	currentSnap := rbdImg.GetSnapshot(ImageSnapshotVersion)
+	if isProtected, err := currentSnap.IsProtected(); err != nil {
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to check if snapshot %s is protected: %w", ImageSnapshotVersion, err)
+		}
+	} else if isProtected {
+		log.V(2).Info("Snapshot already exists and is protected, skipping creation and protection.", "snapshotName", ImageSnapshotVersion)
+		return nil
+	}
+
 	if err := r.populateImage(log, rbdImg, rc); err != nil {
 		return fmt.Errorf("failed to populate os image: %w", err)
 	}
