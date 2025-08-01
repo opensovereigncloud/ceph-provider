@@ -500,18 +500,39 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 }
 
 func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, rbdImg *librbd.Image, rc io.ReadCloser) error {
+	currentSnap := rbdImg.GetSnapshot(ImageSnapshotVersion)
+
+	isProtected, err := currentSnap.IsProtected()
+	if err != nil {
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to check if snapshot %s is protected: %w", ImageSnapshotVersion, err)
+		}
+	}
+
+	if isProtected {
+		log.V(2).Info("Snapshot already exists and is protected, skipping creation and protection.", "snapshotName", ImageSnapshotVersion)
+		return nil
+	}
+
 	if err := r.populateImage(log, rbdImg, rc); err != nil {
 		return fmt.Errorf("failed to populate os image: %w", err)
 	}
 	log.V(2).Info("Populated os image on rbd image")
 
-	imgSnap, err := rbdImg.CreateSnapshot(ImageSnapshotVersion)
+	log.V(1).Info("Attempting to create snapshot", "snapshotName", ImageSnapshotVersion)
+	newSnap, err := rbdImg.CreateSnapshot(ImageSnapshotVersion)
 	if err != nil {
-		return fmt.Errorf("unable to create snapshot: %w", err)
+		if errors.Is(err, librbd.ErrExist) {
+			log.V(2).Info("Snapshot creation failed with 'File exists', assuming it was created concurrently.", "snapshotName", ImageSnapshotVersion)
+			newSnap = rbdImg.GetSnapshot(ImageSnapshotVersion)
+		} else {
+			return fmt.Errorf("unable to create snapshot %s: %w", ImageSnapshotVersion, err)
+		}
 	}
 
-	if err := imgSnap.Protect(); err != nil {
-		return fmt.Errorf("unable to protect snapshot: %w", err)
+	log.V(2).Info("Protecting snapshot.", "snapshotName", ImageSnapshotVersion)
+	if err := newSnap.Protect(); err != nil {
+		return fmt.Errorf("unable to protect snapshot %s: %w", ImageSnapshotVersion, err)
 	}
 
 	return nil
