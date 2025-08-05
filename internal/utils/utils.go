@@ -6,6 +6,8 @@ package utils
 import (
 	"errors"
 	"slices"
+
+	"github.com/google/uuid"
 )
 
 func DeleteSliceElement[E comparable](s []E, elem E) []E {
@@ -36,4 +38,12 @@ func Int64ToUint64(i int64) (uint64, error) {
 		return 0, errors.New("failed to convert a negative int64 to uint64")
 	}
 	return uint64(i), nil
+}
+
+func GenerateUUIDv7() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
 }
