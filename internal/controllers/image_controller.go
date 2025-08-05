@@ -38,6 +38,7 @@ const (
 	LimitMetadataPrefix = "conf_"
 	WWNKey              = "wwn"
 	imageDigestLabel    = "image-digest"
+	LogKeyReconcileID   = "reconcileID"
 )
 
 type ImageReconcilerOptions struct {
@@ -207,7 +208,11 @@ func (r *ImageReconciler) processNextWorkItem(ctx context.Context, log logr.Logg
 	}
 	defer r.queue.Done(id)
 
-	log = log.WithValues("imageId", id)
+	reconcileID, err := utils.GenerateUUIDv7()
+	if err != nil {
+		log.Error(err, "failed to generate reconcile ID")
+	}
+	log = log.WithValues("imageId", id, LogKeyReconcileID, reconcileID)
 	ctx = logr.NewContext(ctx, log)
 
 	if err := r.reconcileImage(ctx, id); err != nil {
