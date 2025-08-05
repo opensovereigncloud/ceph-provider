@@ -150,7 +150,11 @@ func (r *SnapshotReconciler) processNextWorkItem(ctx context.Context, log logr.L
 	}
 	defer r.queue.Done(id)
 
-	log = log.WithValues("snapshotId", id)
+	reconcileID, err := utils.GenerateUUIDv7()
+	if err != nil {
+		log.Error(err, "failed to generate reconcile ID")
+	}
+	log = log.WithValues("snapshotID", id, LogKeyReconcileID, reconcileID)
 	ctx = logr.NewContext(ctx, log)
 
 	if err := r.reconcileSnapshot(ctx, log, id); err != nil {
