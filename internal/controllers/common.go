@@ -5,7 +5,7 @@ package controllers
 
 const (
 	ImageRBDIDPrefix    = "img_"
-	SnapshotRBDIDPrefix = "snap_"
+	SnapshotRBDIDPrefix = "ironcore_snap_"
 
 	ImageSnapshotVersion = "v1"
 )
