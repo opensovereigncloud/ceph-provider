@@ -2,7 +2,6 @@
 stages:
   - lint
   - build
-  - post-processing
 
 variables:
   TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common/pipeline-community"
@@ -171,10 +170,3 @@ build-bucket:
     entrypoint: ["/bin/ash", "-c"]
   script:
     - make build-bucket
-
-include:
-  - component: 'gitlab.devops.telekom.de/cas-devs/osc/common/pipeline-community/components/mtr/configure-repo@stable'
-    inputs:
-      image-list-type: 'none'
-      version: 'stable'
-      stage: 'post-processing'
