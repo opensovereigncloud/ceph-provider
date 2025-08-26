@@ -2,20 +2,23 @@
 stages:
   - lint
   - build
+  - sync-with-upstream
 
 variables:
   TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common/pipeline-community"
   CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-gitlab-runner-linter:alpine-latest-0.8"
   GO_BUILD_IMG: "mtr.devops.telekom.de/osc/onmetal/container-images/go:libvirt-provider-go-1.24.1-alpine-3.21.3"
+  TOOLS_IMAGE: mtr.devops.telekom.de/osc/onmetal/container-images/tools:v1.0.0-alpine3.22
 
 .run-on-go-change:
   rules:
-    - changes:
-        compare_to: 'osc/main'
-        paths:
-          - '**/*.go'
-          - 'go.mod'
-          - 'go.sum'
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+          compare_to: 'osc/main'
+          paths:
+            - '**/*.go'
+            - 'go.mod'
+            - 'go.sum'
 
 default:
   tags:
@@ -30,11 +33,12 @@ yaml-lint:
     YAML_LINT_CONFIG: './.linter-config/yamllint.yaml'
   image: "${CI_LINTER_IMG}"
   rules:
-    - changes:
-        compare_to: 'osc/main'
-        paths:
-          - "**/*.yaml"
-          - "**/*.yml"
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+          compare_to: 'osc/main'
+          paths:
+            - "**/*.yaml"
+            - "**/*.yml"
   script:
     - |
       if [[ -f "${YAML_LINT_CONFIG}" ]]; then
@@ -49,10 +53,11 @@ file-lint:
     FILES_LINT_CONFIG: './.linter-config/file-lint.conf'
   image: "${CI_LINTER_IMG}"
   rules:
-    - changes:
-        compare_to: 'osc/main'
-        paths:
-          - "**/*" # To ensure it won't run on empty commits
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+          compare_to: 'osc/main'
+          paths:
+            - "**/*" # To ensure it won't run on empty commits
   script:
     - if [[ ${PIPELINE_DEBUG} == 1 ]]; then debug_flag="-x"; fi
     - if [[ -f "${FILES_LINT_CONFIG}" ]]; then cfg="--config ${FILES_LINT_CONFIG}"; fi
@@ -74,10 +79,11 @@ markdown-lint:
     MARKDOWN_LINT_IGNORE_CONFIG: "./.linter-config/.markdownlintignore"
   image: "${CI_LINTER_IMG}"
   rules:
-    - changes:
-        compare_to: 'osc/main'
-        paths:
-          - "**/*.md"
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+          compare_to: 'osc/main'
+          paths:
+            - "**/*.md"
   script:
     - |
       # copy markdown ignore config if exists
@@ -99,10 +105,11 @@ shell-lint:
       - /bin/ash
       - -c
   rules:
-    - changes:
-        compare_to: 'osc/main'
-        paths:
-          - "**/*.sh"
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+      changes:
+          compare_to: 'osc/main'
+          paths:
+            - "**/*.sh"
   variables:
     SHELL_LINT_EXCLUDES: .linter-config/shellcheck-excludes
   script:
@@ -170,3 +177,18 @@ build-bucket:
     entrypoint: ["/bin/ash", "-c"]
   script:
     - make build-bucket
+
+sync-with-upstream:
+  stage: sync-with-upstream
+  image:
+    name: $TOOLS_IMAGE
+    entrypoint: [""]
+  variables:
+    PYTHON_GITLAB_CFG: "$GITLAB_CFG"
+    GIT_STRATEGY: clone
+    GIT_DEPTH: 0
+    GITLAB_TIMEOUT: 10
+  script:
+    - bash ./hack/osc-sync-with-upstream.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
