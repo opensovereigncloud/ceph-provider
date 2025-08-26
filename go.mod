@@ -10,6 +10,7 @@ require (
 	github.com/containerd/containerd v1.7.30
 	github.com/go-logr/logr v1.4.3
 	github.com/google/addlicense v1.2.0
+	github.com/google/uuid v1.6.0
 	github.com/ironcore-dev/controller-utils v0.10.0
 	github.com/ironcore-dev/ironcore v0.2.5-0.20250923112018-311a2542fc90
 	github.com/ironcore-dev/ironcore-image v0.2.5
