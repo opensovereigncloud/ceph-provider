@@ -10,6 +10,23 @@ variables:
   GO_BUILD_IMG: "mtr.devops.telekom.de/osc/onmetal/container-images/go:go-1.25.0-alpine-3.22.1"
   TOOLS_IMAGE: mtr.devops.telekom.de/osc/onmetal/container-images/tools:v1.0.0-alpine3.22
 
+default:
+  tags:
+    - docker
+    - pes
+    - osc
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - job_execution_timeout
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event' || $CI_PIPELINE_SOURCE == 'schedule'
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\..*/
+
+# Common template to run jobs on changes in go files
 .run-on-go-change:
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
@@ -20,12 +37,7 @@ variables:
             - 'go.mod'
             - 'go.sum'
 
-default:
-  tags:
-    - docker
-    - pes
-    - osc
-
+# Lint Stages for various file types
 yaml-lint:
   stage: lint
   needs: []
@@ -160,6 +172,7 @@ go-lint:
   script:
     - make lint
 
+# Build Stages for volume and bucket components
 build-volume:
   extends: .run-on-go-change
   stage: build
@@ -178,6 +191,7 @@ build-bucket:
   script:
     - make build-bucket
 
+# SYNC Stage
 sync-with-upstream:
   stage: sync-with-upstream
   image:
