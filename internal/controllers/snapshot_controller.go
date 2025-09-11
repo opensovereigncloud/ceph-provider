@@ -265,13 +265,13 @@ func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *prov
 		}
 	}()
 
-	pools, childrenImgs, err := img.ListChildren()
+	_, childrenImgs, err := img.ListChildren()
 	if err != nil {
 		return false, fmt.Errorf("failed to list children for RBD image %s: %w", rbdImageID, err)
 	}
 
-	if len(pools) > 0 || len(childrenImgs) > 0 {
-		log.V(2).Info("RBD image is in use (has children)", "childrenPoolCount", len(pools), "childrenImageCount", len(childrenImgs), "childrenPools", pools, "childrenImages", childrenImgs)
+	if len(childrenImgs) > 0 {
+		log.V(2).Info("RBD image is in use (has children)", "rbdImageID", rbdImageID, "childrenImageCount", len(childrenImgs))
 		return true, nil
 	}
 
