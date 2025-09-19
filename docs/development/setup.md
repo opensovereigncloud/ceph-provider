@@ -156,7 +156,7 @@ go run ./cmd/bucketprovider/main.go \
 
 ## Interact with the  `ceph-provider`
 
-### Prerequisites
+### Prerequisites for interaction
 
 - irictl-volume
     - locally running or
