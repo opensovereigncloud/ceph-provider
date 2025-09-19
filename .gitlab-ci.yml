@@ -6,7 +6,7 @@ stages:
 
 variables:
   TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common/pipeline-community"
-  CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-gitlab-runner-linter:alpine-latest-0.8"
+  CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-gitlab-runner-linter:alpine-latest-0.9"
   GO_BUILD_IMG: "mtr.devops.telekom.de/osc/onmetal/container-images/go:go-1.25.0-alpine-3.22.1"
   TOOLS_IMAGE: mtr.devops.telekom.de/osc/onmetal/container-images/tools:v1.0.0-alpine3.22
 
@@ -96,6 +96,7 @@ markdown-lint:
           compare_to: 'osc/main'
           paths:
             - "**/*.md"
+            - ".linter-config/mdlrc"
   script:
     - |
       # copy markdown ignore config if exists

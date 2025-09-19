@@ -17,7 +17,7 @@ MD002:
 # MD003/heading-style/header-style - Heading style
 MD003:
   # Heading style
-  style: "consistent"
+  style: "atx"
 
 # MD004/ul-style - Unordered list style
 MD004:
@@ -110,7 +110,7 @@ MD022:
 MD023: true
 
 # MD024/no-duplicate-heading/no-duplicate-header - Multiple headings with the same content
-MD024: false
+MD024: true
 #  # Only check sibling headings
 #  allow_different_nesting: false
 #  # Only check sibling headings
@@ -137,7 +137,7 @@ MD028: true
 # MD029/ol-prefix - Ordered list item prefix
 MD029:
   # List style
-  style: "one_or_ordered"
+  style: "one"
 
 # MD030/list-marker-space - Spaces after list markers
 MD030:
@@ -218,7 +218,7 @@ MD045: true
 # MD046/code-block-style - Code block style
 MD046:
   # Block style
-  style: "consistent"
+  style: "fenced"
 
 # MD047/single-trailing-newline - Files should end with a single newline character
 MD047: true
@@ -226,14 +226,46 @@ MD047: true
 # MD048/code-fence-style - Code fence style
 MD048:
   # Code fence style
-  style: "consistent"
+  style: "backtick"
 
-# MD049/emphasis-style - Emphasis style should be consistent
+# MD049/emphasis-style - Emphasis style should be asterisk
 MD049:
-  # Emphasis style should be consistent
-  style: "consistent"
+  # Emphasis style should be asterisk
+  style: "asterisk"
 
-# MD050/strong-style - Strong style should be consistent
+# MD050/strong-style - Strong style should be asterisk
 MD050:
-  # Strong style should be consistent
-  style: "consistent"
+  # Strong style should be asterisk
+  style: "asterisk"
+
+# MD051/link-fragments - Link fragments should be valid
+MD051: true
+
+# MD052/reference-links-images - Reference links and images should use a label that is defined
+MD052: true
+
+# MD053/link-image-reference-definitions - Link and image reference definitions should be needed
+MD053: true
+
+# MD054/link-image-style - Link and image style
+MD054:
+  autolink: true
+  collapsed: false
+  full: true
+  inline: true
+  shortcut: false
+  url_inline: true
+
+# MD055/table-pipe-style - Table pipe style
+MD055:
+  # Table pipe style
+  style: "leading_and_trailing"
+
+# MD056/table-column-count - Table column count
+MD056: true
+
+# MD058/blanks-around-tables - Tables should be surrounded by blank lines
+MD058: true
+
+# MD059/descriptive-link-text - Link text should be descriptive
+MD059: true
