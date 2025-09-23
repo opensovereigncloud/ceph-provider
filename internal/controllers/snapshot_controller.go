@@ -329,6 +329,7 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 		return nil
 	}
 
+	// Handle Populated Snapshots
 	if snapshot.Status.State == providerapi.SnapshotStateReady {
 		log.V(1).Info("Snapshot already populated")
 		now := metav1.Now()
