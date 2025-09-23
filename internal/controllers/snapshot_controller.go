@@ -308,34 +308,6 @@ func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *prov
 	return false, nil
 }
 
-func (r *SnapshotReconciler) backfillSnapshotSize(ctx context.Context, ioCtx *rados.IOContext, log logr.Logger, snapshot *providerapi.Snapshot, rbdImageID string) error {
-	log.V(1).Info("Attempting to backfill size for populated snapshot with 0 size.", "rbdImageID", rbdImageID)
-
-	rbdImg, err := librbd.OpenImage(ioCtx, rbdImageID, librbd.NoSnapshot)
-	if err != nil {
-		return fmt.Errorf("failed to open snapshot rbd image %s for size backfill: %w", rbdImageID, err)
-	}
-
-	defer func() {
-		closeErr := rbdImg.Close()
-		if closeErr != nil && !errors.Is(closeErr, librbd.ErrImageNotOpen) {
-			log.Error(fmt.Errorf("unable to close snapshot: %w", closeErr), "image wasn't properly closed after size backfill")
-		}
-	}()
-
-	actualSize, err := rbdImg.GetSize()
-	if err != nil {
-		return fmt.Errorf("failed to get size of snapshot image %s for backfill: %w", rbdImageID, err)
-	}
-	snapshot.Status.Size = actualSize
-
-	log.V(1).Info("Backfilled size for populated snapshot", "rbdImageID", rbdImageID, "newSize", snapshot.Status.Size)
-	if _, err := r.store.Update(ctx, snapshot); err != nil {
-		return fmt.Errorf("failed to update snapshot size: %w", err)
-	}
-	return nil
-}
-
 // setLastPopulatedTimeIfZero sets the snapshot's LastPopulatedTime if it is currently its zero value (i.e., unset).
 // This timestamp marks the point of initial successful population, and is not continuously updated
 // during subsequent reconciliations to preserve its meaning as the original ready time.
@@ -388,14 +360,6 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 	// Handle Populated Snapshots
 	if snapshot.Status.State == providerapi.SnapshotStatePopulated {
 		log.V(1).Info("Snapshot is populated")
-
-		// TODO: this logic can be deleted later. it is important just for update of already created snapshots
-		if snapshot.Status.Size == 0 {
-			if err := r.backfillSnapshotSize(ctx, ioCtx, log, snapshot, rbdImageID); err != nil {
-				return fmt.Errorf("failed to backfill snapshot size: %w", err)
-			}
-			return nil
-		}
 
 		now := metav1.Now()
 		if err := r.setLastPopulatedTimeIfZero(ctx, log, snapshot, now); err != nil {
