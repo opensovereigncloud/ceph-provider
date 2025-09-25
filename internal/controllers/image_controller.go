@@ -147,7 +147,9 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 	// todo make configurable
 	workerSize := 15
 
+	log.V(2).Info("Check image events")
 	imgEventReg, err := r.imageEvents.AddHandler(event.HandlerFunc[*providerapi.Image](func(evt event.Event[*providerapi.Image]) {
+		log.V(2).Info("Add image for processing", "imageID", evt.Object.ID)
 		r.queue.Add(evt.Object.ID)
 	}))
 	if err != nil {
@@ -157,7 +159,9 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 		_ = r.imageEvents.RemoveHandler(imgEventReg)
 	}()
 
+	log.V(2).Info("Check snapshot events")
 	snapEventReg, err := r.snapshotEvents.AddHandler(event.HandlerFunc[*providerapi.Snapshot](func(evt event.Event[*providerapi.Snapshot]) {
+		log.V(2).Info("Check snapshot event state and type")
 		if evt.Type != event.TypeUpdated || evt.Object.Status.State != providerapi.SnapshotStatePopulated {
 			return
 		}
@@ -167,10 +171,12 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 			log.Error(err, "failed to list images")
 			return
 		}
+		log.V(2).Info("List all images", "image count", len(imageList))
 
 		for _, img := range imageList {
 			if snapshotRef := img.Spec.SnapshotRef; snapshotRef != nil && *snapshotRef == evt.Object.ID {
 				r.Eventf(img.Metadata, corev1.EventTypeNormal, "PulledImage", "Pulled image %s", *img.Spec.SnapshotRef)
+				log.V(2).Info("Add image for processing", "imageID", img.ID)
 				r.queue.Add(img.ID)
 			}
 		}
@@ -192,6 +198,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			log.V(2).Info("Processing next work item")
 			for r.processNextWorkItem(ctx, log) {
 			}
 		}()
@@ -204,10 +211,12 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 func (r *ImageReconciler) processNextWorkItem(ctx context.Context, log logr.Logger) bool {
 	id, shutdown := r.queue.Get()
 	if shutdown {
+		log.V(2).Info("Can't process image. Worker is shutdown", "imageID", id)
 		return false
 	}
 	defer r.queue.Done(id)
 
+	log.V(2).Info("Process id from queue", "imageID", id)
 	reconcileID, err := utils.GenerateUUIDv7()
 	if err != nil {
 		log.Error(err, "failed to generate reconcile ID")
@@ -215,12 +224,13 @@ func (r *ImageReconciler) processNextWorkItem(ctx context.Context, log logr.Logg
 	log = log.WithValues("imageId", id, LogKeyReconcileID, reconcileID)
 	ctx = logr.NewContext(ctx, log)
 
-	if err := r.reconcileImage(ctx, id); err != nil {
+	if err := r.reconcileImage(ctx, log, id); err != nil {
 		log.Error(err, "failed to reconcile image")
 		r.queue.AddRateLimited(id)
 		return true
 	}
 
+	log.V(1).Info("Remove id from queue", "imageID", id)
 	r.queue.Forget(id)
 	return true
 }
@@ -235,6 +245,7 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		return nil
 	}
 
+	log.V(2).Info("Open image")
 	imgExists := true
 	img, err := librbd.OpenImage(ioCtx, ImageIDToRBDID(image.ID), librbd.NoSnapshot)
 	if err != nil {
@@ -245,16 +256,19 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		}
 	}
 
+	log.V(2).Info("Check if image exists", "imgExists", imgExists)
 	if img != nil {
 		defer img.Close()
 	}
 
 	if imgExists {
+		log.V(2).Info("Marshal image")
 		data, err := json.Marshal(image)
 		if err != nil {
 			return fmt.Errorf("failed to marshal image obj: %w", err)
 		}
 
+		log.V(2).Info("Set image metadata")
 		err = img.SetMetadata("onmetal-omap-backup", string(data))
 		if err != nil {
 			return err
@@ -313,11 +327,13 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 		return nil
 	}
 
+	log.V(2).Info("Parse image url")
 	spec, err := reference.Parse(img.Spec.Image)
 	if err != nil {
 		return fmt.Errorf("failed to parse image reference: %w", err)
 	}
 
+	log.V(2).Info("Resolve image url")
 	resolvedImg, err := r.registry.Resolve(ctx, img.Spec.Image)
 	if err != nil {
 		return fmt.Errorf("failed to resolve image ref in registry: %w", err)
@@ -354,6 +370,7 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 
 	img.Spec.SnapshotRef = ptr.To(snap.ID)
 
+	log.V(2).Info("Update snapshotRef of image in store")
 	if _, err := r.images.Update(ctx, img); err != nil {
 		return fmt.Errorf("failed to update image snapshot ref: %w", err)
 	}
@@ -418,14 +435,15 @@ func (r *ImageReconciler) updateImage(ctx context.Context, log logr.Logger, ioCt
 	return nil
 }
 
-func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
-	log := logr.FromContextOrDiscard(ctx)
+func (r *ImageReconciler) reconcileImage(ctx context.Context, log logr.Logger, id string) error {
+	log.V(2).Info("Reconciling image")
 	ioCtx, err := r.conn.OpenIOContext(r.pool)
 	if err != nil {
 		return fmt.Errorf("unable to get io context: %w", err)
 	}
 	defer ioCtx.Destroy()
 
+	log.V(2).Info("get image from store if exists")
 	img, err := r.images.Get(ctx, id)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
@@ -434,7 +452,9 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
 		return nil
 	}
 
+	log.V(2).Info("Check if image is marked for deletion")
 	if img.DeletedAt != nil {
+		log.V(2).Info("Delete image as its marked for deletion")
 		if err := r.deleteImage(ctx, log, ioCtx, img); err != nil {
 			return fmt.Errorf("failed to delete image: %w", err)
 		}
@@ -442,7 +462,9 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
 		return nil
 	}
 
+	log.V(2).Info("Check if image has finalizer")
 	if !slices.Contains(img.Finalizers, ImageFinalizer) {
+		log.V(2).Info("Image dont have finalizer, add finalizer to image")
 		img.Finalizers = append(img.Finalizers, ImageFinalizer)
 		if _, err := r.images.Update(ctx, img); err != nil {
 			return fmt.Errorf("failed to set finalizers: %w", err)
@@ -450,10 +472,12 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
 		return nil
 	}
 
+	log.V(2).Info("Reconcile snapshot of image")
 	if err := r.reconcileSnapshot(ctx, log, img); err != nil {
 		return fmt.Errorf("failed to reconcile snapshot: %w", err)
 	}
 
+	log.V(2).Info("Check if image already exist")
 	imageExists, err := r.isImageExisting(ctx, log, ioCtx, img)
 	if err != nil {
 		return fmt.Errorf("failed to check image existence: %w", err)
@@ -461,13 +485,16 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
 	log.V(1).Info("Checked image existence", "imageExists", imageExists)
 
 	if imageExists {
+		log.V(2).Info("Check if image state is available")
 		if img.Status.State == providerapi.ImageStateAvailable {
+			log.V(2).Info("Update image in store")
 			if err := r.updateImage(ctx, log, ioCtx, img); err != nil {
 				return fmt.Errorf("failed to update image: %w", err)
 			}
 			return nil
 		}
 	} else {
+		log.V(2).Info("Create new image options")
 		options := librbd.NewRbdImageOptions()
 		defer options.Destroy()
 		if err := options.SetString(librbd.RbdImageOptionDataPool, r.pool); err != nil {
@@ -513,6 +540,7 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to fetch credentials: %w", err)
 	}
 
+	log.V(1).Info("Update image status in store")
 	img.Status.Access = &providerapi.ImageAccess{
 		Monitors: r.monitors,
 		Handle:   fmt.Sprintf("%s/%s", r.pool, ImageIDToRBDID(img.ID)),
