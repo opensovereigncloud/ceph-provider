@@ -34,6 +34,7 @@ func (s *Server) createImageFromVolume(ctx context.Context, log logr.Logger, vol
 		}
 	}
 
+	log.V(2).Info("Checking volume encryption")
 	if encryption := volume.Spec.Encryption; encryption != nil {
 		if encryption.SecretData == nil {
 			return nil, fmt.Errorf("encryption enabled but SecretData missing")

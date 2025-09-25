@@ -211,8 +211,14 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("configuration invalid: %w", err)
 	}
 
+	// Wrap the concrete connection to satisfy the interface
+	radosConnWrapper := omap.NewCephRadosConnection(conn)
+	if radosConnWrapper == nil {
+		return fmt.Errorf("failed to create rados connection wrapper")
+	}
+
 	setupLog.Info("Configuring image store", "OmapName", omap.NameVolumes)
-	imageStore, err := omap.New(conn, opts.Ceph.Pool, omap.Options[*providerapi.Image]{
+	imageStore, err := omap.New(radosConnWrapper, opts.Ceph.Pool, log.WithName("image-store"), omap.Options[*providerapi.Image]{
 		OmapName:       omap.NameVolumes,
 		NewFunc:        func() *providerapi.Image { return &providerapi.Image{} },
 		CreateStrategy: strategy.ImageStrategy,
@@ -224,14 +230,16 @@ func Run(ctx context.Context, opts Options) error {
 	imageEvents, err := event.NewListWatchSource[*providerapi.Image](
 		imageStore.List,
 		imageStore.Watch,
-		event.ListWatchSourceOptions{},
+		event.ListWatchSourceOptions{
+			ResyncDuration: 20 * time.Minute,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize image events: %w", err)
 	}
 
 	setupLog.Info("Configuring snapshot store", "OmapName", omap.NameSnapshots)
-	snapshotStore, err := omap.New(conn, opts.Ceph.Pool, omap.Options[*providerapi.Snapshot]{
+	snapshotStore, err := omap.New(radosConnWrapper, opts.Ceph.Pool, log.WithName("snapshot-store"), omap.Options[*providerapi.Snapshot]{
 		OmapName:       omap.NameSnapshots,
 		NewFunc:        func() *providerapi.Snapshot { return &providerapi.Snapshot{} },
 		CreateStrategy: strategy.SnapshotStrategy,
