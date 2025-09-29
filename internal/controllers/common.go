@@ -8,6 +8,8 @@ const (
 	SnapshotRBDIDPrefix = "ironcore_snap_"
 
 	ImageSnapshotVersion = "v1"
+
+	LogKeyImageID = "imageId"
 )
 
 func ImageIDToRBDID(imageID string) string {

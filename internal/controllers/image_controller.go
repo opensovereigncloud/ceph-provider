@@ -149,7 +149,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 
 	log.V(2).Info("Check image events")
 	imgEventReg, err := r.imageEvents.AddHandler(event.HandlerFunc[*providerapi.Image](func(evt event.Event[*providerapi.Image]) {
-		log.V(2).Info("Add image for processing", "imageId", evt.Object.ID, "eventSource", "image-reconciler")
+		log.V(2).Info("Add image for processing by image event", LogKeyImageID, evt.Object.GetID())
 		r.queue.Add(evt.Object.ID)
 	}))
 	if err != nil {
@@ -176,7 +176,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 		for _, img := range imageList {
 			if snapshotRef := img.Spec.SnapshotRef; snapshotRef != nil && *snapshotRef == evt.Object.ID {
 				r.Eventf(img.Metadata, corev1.EventTypeNormal, "PulledImage", "Pulled image %s", *img.Spec.SnapshotRef)
-				log.V(2).Info("Add image for processing", "imageId", img.ID)
+				log.V(2).Info("Add image for processing by snapshot event", LogKeyImageID, img.ID)
 				r.queue.Add(img.ID)
 			}
 		}
@@ -211,17 +211,20 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 func (r *ImageReconciler) processNextWorkItem(ctx context.Context, log logr.Logger) bool {
 	id, shutdown := r.queue.Get()
 	if shutdown {
-		log.V(2).Info("Can't process image. Worker is shutdown", "imageId", id)
+		log.V(2).Info("Can't process image. Worker is shutdown", LogKeyImageID, id)
 		return false
 	}
 	defer r.queue.Done(id)
 
-	log.V(2).Info("Process id from queue", "imageId", id)
+	log = log.WithValues(LogKeyImageID, id)
+
+	log.V(2).Info("Process id from queue")
 	reconcileID, err := utils.GenerateUUIDv7()
 	if err != nil {
 		log.Error(err, "failed to generate reconcile ID")
 	}
-	log = log.WithValues("imageId", id, LogKeyReconcileID, reconcileID)
+
+	log = log.WithValues(LogKeyReconcileID, reconcileID)
 	ctx = logr.NewContext(ctx, log)
 
 	if err := r.reconcileImage(ctx, log, id); err != nil {
