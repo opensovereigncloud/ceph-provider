@@ -171,7 +171,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 			log.Error(err, "failed to list images")
 			return
 		}
-		log.V(2).Info("List all images", "image count", len(imageList))
+		log.V(2).Info("List all images", "imageCount", len(imageList))
 
 		for _, img := range imageList {
 			if snapshotRef := img.Spec.SnapshotRef; snapshotRef != nil && *snapshotRef == evt.Object.ID {
@@ -198,7 +198,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			log.V(2).Info("Processing next work item")
+			log.V(2).Info("starting worker")
 			for r.processNextWorkItem(ctx, log) {
 			}
 		}()
@@ -543,7 +543,6 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, log logr.Logger, i
 		return fmt.Errorf("failed to fetch credentials: %w", err)
 	}
 
-	log.V(1).Info("Update image status in store")
 	img.Status.Access = &providerapi.ImageAccess{
 		Monitors: r.monitors,
 		Handle:   fmt.Sprintf("%s/%s", r.pool, ImageIDToRBDID(img.ID)),
