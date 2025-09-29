@@ -490,7 +490,6 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, log logr.Logger, i
 	if imageExists {
 		log.V(2).Info("Check if image state is available")
 		if img.Status.State == providerapi.ImageStateAvailable {
-			log.V(2).Info("Update image in store")
 			if err := r.updateImage(ctx, log, ioCtx, img); err != nil {
 				return fmt.Errorf("failed to update image: %w", err)
 			}
