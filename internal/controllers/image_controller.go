@@ -147,7 +147,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 	// todo make configurable
 	workerSize := 15
 
-	log.V(2).Info("Check image events")
+	log.V(2).Info("Register image events handler")
 	imgEventReg, err := r.imageEvents.AddHandler(event.HandlerFunc[*providerapi.Image](func(evt event.Event[*providerapi.Image]) {
 		log.V(2).Info("Add image for processing by image event", LogKeyImageID, evt.Object.GetID())
 		r.queue.Add(evt.Object.ID)
@@ -159,7 +159,7 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 		_ = r.imageEvents.RemoveHandler(imgEventReg)
 	}()
 
-	log.V(2).Info("Check snapshot events")
+	log.V(2).Info("Register snapshot events handler")
 	snapEventReg, err := r.snapshotEvents.AddHandler(event.HandlerFunc[*providerapi.Snapshot](func(evt event.Event[*providerapi.Snapshot]) {
 		log.V(2).Info("Check snapshot event state and type")
 		if evt.Type != event.TypeUpdated || evt.Object.Status.State != providerapi.SnapshotStatePopulated {
