@@ -38,7 +38,6 @@ const (
 	LimitMetadataPrefix = "conf_"
 	WWNKey              = "wwn"
 	imageDigestLabel    = "image-digest"
-	LogKeyReconcileID   = "reconcileID"
 )
 
 type ImageReconcilerOptions struct {
@@ -161,22 +160,23 @@ func (r *ImageReconciler) Start(ctx context.Context) error {
 
 	log.V(2).Info("Register snapshot events handler")
 	snapEventReg, err := r.snapshotEvents.AddHandler(event.HandlerFunc[*providerapi.Snapshot](func(evt event.Event[*providerapi.Snapshot]) {
-		log.V(2).Info("Check snapshot event state and type")
+		localLog := log.WithValues(LogKeySnapshotID, evt.Object.ID)
+		localLog.V(2).Info("Check snapshot event state and type")
 		if evt.Type != event.TypeUpdated || evt.Object.Status.State != providerapi.SnapshotStatePopulated {
 			return
 		}
 
 		imageList, err := r.images.List(ctx)
 		if err != nil {
-			log.Error(err, "failed to list images")
+			localLog.Error(err, "failed to list images")
 			return
 		}
-		log.V(2).Info("List all images", "imageCount", len(imageList))
+		localLog.V(2).Info("List all images", "imageCount", len(imageList))
 
 		for _, img := range imageList {
 			if snapshotRef := img.Spec.SnapshotRef; snapshotRef != nil && *snapshotRef == evt.Object.ID {
 				r.Eventf(img.Metadata, corev1.EventTypeNormal, "PulledImage", "Pulled image %s", *img.Spec.SnapshotRef)
-				log.V(2).Info("Add image for processing by snapshot event", LogKeyImageID, img.ID)
+				localLog.V(2).Info("Add image for processing by snapshot event", LogKeyImageID, img.ID)
 				r.queue.Add(img.ID)
 			}
 		}
