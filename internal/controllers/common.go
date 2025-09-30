@@ -18,6 +18,10 @@ const (
 	SnapshotRBDIDPrefix = "snap_"
 
 	ImageSnapshotVersion = "v1"
+
+	LogKeyImageID     = "imageID"
+	LogKeyReconcileID = "reconcileID"
+	LogKeySnapshotID  = "snapshotID"
 )
 
 func ImageIDToRBDID(imageID string) string {
