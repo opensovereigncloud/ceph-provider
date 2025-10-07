@@ -27,12 +27,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GO111MODULE=on go build -ldflags="${LDFLAGS}" -a -o bin/ceph-bucket-provider ./cmd/bucketprovider/main.go
 
-
 # Start from Kubernetes Debian base.
 FROM builder AS ceph-volume-provider-builder
 # Install necessary dependencies
 
-RUN apt update  && apt install -y libcephfs-dev librbd-dev librados-dev libc-bin
+RUN apt update && apt install -y libcephfs-dev librbd-dev librados-dev libc-bin ca-certificates
 
 # Install cross-compiler for ARM64 if building for arm64 on an amd64 host
 RUN if [ "$TARGETARCH" = "arm64" ] && [ "$BUILDARCH" = "amd64" ]; then \
@@ -133,7 +132,8 @@ COPY --from=ceph-volume-provider-builder /lib/${LIB_DIR_PREFIX}-linux-gnu/librad
 RUN mkdir -p /${LIB_DIR}
 COPY --from=ceph-volume-provider-builder /${LIB_DIR}/ld-linux-${LIB_DIR_PREFIX_MINUS}.so.${LIB_DIR_SUFFIX_NUMBER} /${LIB_DIR}/
 RUN mkdir -p /usr/lib/${LIB_DIR_PREFIX}-linux-gnu/ceph/
-COPY --from=ceph-volume-provider-builder /usr/lib/${LIB_DIR_PREFIX}-linux-gnu/ceph/libceph-common.so.2 /usr/lib/${LIB_DIR_PREFIX}-linux-gnu/ceph
+COPY --from=ceph-volume-provider-builder /usr/lib/${LIB_DIR_PREFIX}-linux-gnu/ /usr/lib/${LIB_DIR_PREFIX}-linux-gnu/
+COPY --from=ceph-volume-provider-builder /etc/ssl/certs /etc/ssl/certs
 
 COPY --from=ceph-volume-provider-builder /workspace/bin/ceph-volume-provider /ceph-volume-provider
 
@@ -141,7 +141,6 @@ COPY --from=ceph-volume-provider-builder /workspace/bin/ceph-volume-provider /ce
 # See validate-container-linux-* targets in Makefile
 FROM ceph-volume-provider-image AS validation-image
 
-COPY --from=busybox /usr/bin/ldd /usr/bin/find /usr/bin/xargs /usr/bin/
 COPY --from=builder /workspace/hack/print-missing-deps.sh /print-missing-deps.sh
 SHELL ["/bin/bash", "-c"]
 RUN /print-missing-deps.sh
@@ -153,9 +152,7 @@ USER 65532:65532
 
 ENTRYPOINT ["/ceph-volume-provider"]
 
-
-
-FROM distroless-base  AS ceph-bucket-provider
+FROM debian:trixie-slim AS ceph-bucket-provider
 COPY --from=ceph-bucket-provider-builder /workspace/bin/ceph-bucket-provider /ceph-bucket-provider
 USER 65532:65532
 ENTRYPOINT ["/ceph-bucket-provider"]
