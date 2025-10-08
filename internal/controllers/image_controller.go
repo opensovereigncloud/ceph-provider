@@ -666,7 +666,7 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 			return false, fmt.Errorf("failed to get snapshot: %w", err)
 		}
 
-		log.V(1).Info("snapshot not found", "snapshotID", snapshot.ID)
+		log.V(1).Info("snapshot not found", "snapshotRef", snapshotRef)
 
 		return false, nil
 	}
