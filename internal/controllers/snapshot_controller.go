@@ -144,6 +144,8 @@ func (r *SnapshotReconciler) Start(ctx context.Context) error {
 	}()
 
 	go func() {
+		// Panic recovery for the snapshot reconciler shutdown handler
+		defer utils.Recover(log, "snapshot-reconciler-shutdown-handler")
 		<-ctx.Done()
 		r.queue.ShutDown()
 	}()
@@ -154,6 +156,17 @@ func (r *SnapshotReconciler) Start(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			for r.processNextWorkItem(ctx, log) {
+				// Inner function to wrap the unit of work and its panic recovery
+				shouldContinue := func() bool {
+					// Panic recovery for the snapshot reconciler worker
+					defer utils.Recover(log, "snapshot-reconciler-worker")
+					// Process the next work item. Returns false if the queue is shutting down.
+					return r.processNextWorkItem(ctx, log)
+				}()
+				// If r.processNextWorkItem signaled shutdown, exit the worker goroutine.
+				if !shouldContinue {
+					return
+				}
 			}
 		}()
 	}

@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	goflag "flag"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"github.com/ironcore-dev/ceph-provider/internal/encryption"
 	"github.com/ironcore-dev/ceph-provider/internal/omap"
 	"github.com/ironcore-dev/ceph-provider/internal/strategy"
+	internalutils "github.com/ironcore-dev/ceph-provider/internal/utils"
 	"github.com/ironcore-dev/ceph-provider/internal/vcr"
 	"github.com/ironcore-dev/ceph-provider/internal/volumeserver"
 	"github.com/ironcore-dev/ironcore-image/oci/remote"
@@ -116,8 +118,23 @@ func Command() *cobra.Command {
 			ctrl.SetLogger(logger)
 			cmd.SetContext(ctrl.LoggerInto(cmd.Context(), ctrl.Log))
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return Run(cmd.Context(), opts)
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					internalutils.LogPanic(ctrl.Log, r, "RunE")
+					// Join the recovered panic with any existing error.
+					err = errors.Join(err, fmt.Errorf("%v", r))
+				}
+			}()
+
+			// flag parsing is done therefore we can silence the usage message
+			cmd.SilenceUsage = true
+			// error logging is done in the main logic, so silence cobra errors
+			cmd.SilenceErrors = true
+
+			// Execute the main logic
+			err = Run(cmd.Context(), opts)
+			return
 		},
 	}
 
@@ -278,6 +295,8 @@ func Run(ctx context.Context, opts Options) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Panic recovery for the image reconciler
+		defer internalutils.Recover(log, "image-reconciler")
 		setupLog.Info("Starting image reconciler")
 		if err := imageReconciler.Start(ctx); err != nil {
 			log.Error(err, "failed to start image reconciler")
@@ -303,6 +322,8 @@ func Run(ctx context.Context, opts Options) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Panic recovery for the snapshot reconciler
+		defer internalutils.Recover(log, "snapshot-reconciler")
 		setupLog.Info("Starting snapshot reconciler")
 		if err := snapshotReconciler.Start(ctx); err != nil {
 			log.Error(err, "failed to start snapshot reconciler")
@@ -313,6 +334,8 @@ func Run(ctx context.Context, opts Options) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Panic recovery for the image events source
+		defer internalutils.Recover(log, "image-events-start")
 		setupLog.Info("Starting image events")
 		if err := imageEvents.Start(ctx); err != nil {
 			log.Error(err, "failed to start image events")
@@ -322,6 +345,8 @@ func Run(ctx context.Context, opts Options) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Panic recovery for the snapshot events source
+		defer internalutils.Recover(log, "snapshot-events-start")
 		setupLog.Info("Starting snapshot events")
 		if err := snapshotEvents.Start(ctx); err != nil {
 			log.Error(err, "failed to start snapshot events")
@@ -331,6 +356,8 @@ func Run(ctx context.Context, opts Options) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Panic recovery for the volume events garbage collector
+		defer internalutils.Recover(log, "volume-event-gc-start")
 		setupLog.Info("Starting volume events garbage collector")
 		volumeEventStore.Start(ctx)
 	}()
@@ -385,6 +412,8 @@ func Run(ctx context.Context, opts Options) error {
 	grpcSrv := grpc.NewServer(
 		grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 			log := log.WithName(info.FullMethod)
+			// Panic recovery for gRPC handlers
+			defer internalutils.Recover(log, "grpc-unary-interceptor")
 			ctx = ctrl.LoggerInto(ctx, log)
 			log.V(1).Info("Request")
 			resp, err = handler(ctx, req)
@@ -398,6 +427,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	setupLog.Info("Starting server", "Address", l.Addr().String())
 	go func() {
+		// Panic recovery for the gRPC shutdown handler
+		defer internalutils.Recover(log, "grpc-shutdown-handler")
 		defer func() {
 			setupLog.Info("Shutting down server")
 			grpcSrv.Stop()
