@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ceph/go-ceph/rados"
@@ -26,7 +27,12 @@ type CreateStrategy[E apiutils.Object] interface {
 	PrepareForCreate(obj E)
 }
 
-var ErrResourceVersionNotLatest = errors.New("resourceVersion is not latest")
+var (
+	ErrResourceVersionNotLatest = errors.New("resourceVersion is not latest")
+
+	ErrInitializedAlready     = errors.New("cache is already initialized")
+	ErrInitializedNotExecuted = errors.New("cache initialization wasn't executed")
+)
 
 type Options[E apiutils.Object] struct {
 	OmapName       string
@@ -81,9 +87,7 @@ type Store[E apiutils.Object] struct {
 	cacheMu     sync.RWMutex
 	cache       map[string][]byte           // Cache now stores raw byte data
 	labelIndex  map[string]sets.Set[string] // Add label index field (labelKey=labelValue -> Set[objectID])
-	initialized bool
-	initMu      sync.Mutex
-	initErr     error
+	initialized atomic.Bool
 
 	// Watch related fields
 	watchesMu sync.RWMutex
@@ -142,50 +146,43 @@ func (s *Store[E]) removeFromLabelIndex(objID string, labels map[string]string) 
 	s.log.V(2).Info("Object removed from label index", "id", objID)
 }
 
-func (s *Store[O]) InitializeCache(ctx context.Context) error {
+func (s *Store[O]) InitializeCache() error {
 	s.log.Info("Initializing cache from backend")
-	return s.initializeCache(ctx)
+	err := s.initializeCache()
+	if err != nil {
+		return fmt.Errorf("failed to initialize '%s' cache: %w", s.omapName, err)
+	}
+
+	return nil
 }
 
 // initializeCache performs a one-time, thread-safe initialization of the in-memory cache.
-func (s *Store[E]) initializeCache(_ context.Context) error {
-	s.initMu.Lock()
-	if s.initialized {
-		s.initMu.Unlock()
-		return s.initErr
+func (s *Store[E]) initializeCache() error {
+	// The initialization role using atomic Compare-And-Swap.
+	if !s.initialized.CompareAndSwap(false, true) {
+		return ErrInitializedAlready
 	}
-	s.initialized = true
-	s.initMu.Unlock()
+	s.log.V(1).Info("Starting OMAP cache initialization")
 
-	s.log.V(1).Info("Initializing OMAP cache and label index")
-
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-
+	// Open Context
 	ioCtx, err := s.conn.OpenIOContext(s.pool)
 	if err != nil {
-		s.initErr = fmt.Errorf("failed to open IO context for cache initialization: %w", err)
-		s.log.Error(s.initErr, "Cache initialization failed")
-		return s.initErr
+		return fmt.Errorf("failed to open IO context: %w", err)
 	}
 	defer ioCtx.Destroy()
 
-	// Fetch all OMAP values.
+	// Fetch OMAP Values
 	omapValues, err := ioCtx.GetAllOmapValues(s.omapName, "", "", DefaultIteratorSize)
 	if err != nil {
 		if errors.Is(err, rados.ErrNotFound) {
-			s.log.V(1).Info("OMAP not found during initial cache load, starting with empty cache and index.")
-			s.initialized = true
-			s.initErr = nil
-			s.cache = make(map[string][]byte)
-			s.labelIndex = make(map[string]sets.Set[string])
-			return nil
+			s.log.V(1).Info("No keys found in OMAP, starting with empty cache and index.")
+			return nil // Success, empty cache. finalErr is nil.
 		}
-		s.initErr = fmt.Errorf("failed to get all omap values for cache initialization: %w", err)
-		s.initialized = true
-		s.log.Error(s.initErr, "Cache initialization failed")
-		return s.initErr
+		return fmt.Errorf("failed to get all omap values: %w", err)
 	}
+
+	// Populate Cache and Index (Local)
+	s.log.V(1).Info("Starting initialization of label index")
 
 	s.cache = make(map[string][]byte, len(omapValues))
 	s.labelIndex = make(map[string]sets.Set[string])
@@ -203,7 +200,6 @@ func (s *Store[E]) initializeCache(_ context.Context) error {
 		if len(labels) == 0 {
 			s.log.V(2).Info("Object has no labels", "objectID", obj.GetID())
 		}
-
 		for labelKey, labelValue := range labels {
 			label := formatLabel(labelKey, labelValue)
 			if _, ok := s.labelIndex[label]; !ok {
@@ -212,7 +208,7 @@ func (s *Store[E]) initializeCache(_ context.Context) error {
 			s.labelIndex[label].Insert(k)
 		}
 	}
-	s.initErr = nil
+
 	s.log.V(1).Info("OMAP cache and label index initialized successfully", "indexedLabels", len(s.labelIndex))
 	return nil
 }
@@ -318,8 +314,8 @@ func (s *Store[E]) deleteFromOmap(ioCtx RadosIOContext, id string) error {
 // --- Public Methods ---
 
 func (s *Store[E]) Create(ctx context.Context, obj E) (E, error) {
-	if err := s.initializeCache(ctx); err != nil {
-		return utils.Zero[E](), fmt.Errorf("failed to initialize cache for Create: %w", err)
+	if !s.initialized.Load() {
+		return utils.Zero[E](), ErrInitializedNotExecuted
 	}
 
 	objID := obj.GetID()
@@ -366,12 +362,6 @@ func (s *Store[E]) Create(ctx context.Context, obj E) (E, error) {
 
 	s.cacheMu.Lock()
 
-	if !s.initialized {
-		s.cacheMu.Unlock()
-		s.log.Error(errors.New("cache became uninitialized during Create"), "Cache state inconsistent")
-		_ = s.deleteFromOmap(ioCtx, objID)
-		return utils.Zero[E](), errors.New("cache consistency error during create")
-	}
 	s.cache[persistedObject.GetID()] = rawData
 	s.updateLabelIndex(objID, nil, currentLabels)
 	s.cacheMu.Unlock()
@@ -386,8 +376,8 @@ func (s *Store[E]) Create(ctx context.Context, obj E) (E, error) {
 }
 
 func (s *Store[E]) Delete(ctx context.Context, id string) error {
-	if err := s.initializeCache(ctx); err != nil {
-		return fmt.Errorf("failed to initialize cache for Delete: %w", err)
+	if !s.initialized.Load() {
+		return ErrInitializedNotExecuted
 	}
 
 	s.log.V(1).Info("Deleting object", "id", id)
@@ -481,8 +471,8 @@ func (s *Store[E]) Delete(ctx context.Context, id string) error {
 	return nil
 }
 func (s *Store[E]) Get(ctx context.Context, id string) (E, error) {
-	if err := s.initializeCache(ctx); err != nil {
-		return utils.Zero[E](), fmt.Errorf("failed to initialize cache for Get: %w", err)
+	if !s.initialized.Load() {
+		return utils.Zero[E](), ErrInitializedNotExecuted
 	}
 
 	s.log.V(2).Info("Getting object from cache", "id", id)
@@ -509,8 +499,8 @@ func (s *Store[E]) Get(ctx context.Context, id string) (E, error) {
 }
 
 func (s *Store[E]) Update(ctx context.Context, obj E) (E, error) {
-	if err := s.initializeCache(ctx); err != nil {
-		return utils.Zero[E](), fmt.Errorf("failed to initialize cache for Update: %w", err)
+	if !s.initialized.Load() {
+		return utils.Zero[E](), ErrInitializedNotExecuted
 	}
 
 	objID := obj.GetID()
@@ -549,7 +539,6 @@ func (s *Store[E]) Update(ctx context.Context, obj E) (E, error) {
 		s.log.V(1).Info("Update triggers physical deletion", "id", objID)
 		if oldObj.GetResourceVersion() != obj.GetResourceVersion() {
 			s.log.V(1).Info("ResourceVersion mismatch during update-triggered delete", "id", objID, "expected", oldObj.GetResourceVersion(), "got", obj.GetResourceVersion())
-			//return utils.Zero[E](), fmt.Errorf("failed to delete object during update: %w", store.ErrResourceVersionNotLatest)
 			return utils.Zero[E](), fmt.Errorf("failed to delete object during update: %w", ErrResourceVersionNotLatest)
 		}
 
@@ -564,7 +553,6 @@ func (s *Store[E]) Update(ctx context.Context, obj E) (E, error) {
 		s.log.V(1).Info("Performing standard update", "id", objID)
 		if oldObj.GetResourceVersion() != obj.GetResourceVersion() {
 			s.log.V(1).Info("ResourceVersion mismatch during update", "id", objID, "expected", oldObj.GetResourceVersion(), "got", obj.GetResourceVersion())
-			//return utils.Zero[E](), fmt.Errorf("failed to update object: %w", store.ErrResourceVersionNotLatest)
 			return utils.Zero[E](), fmt.Errorf("failed to update object: %w", ErrResourceVersionNotLatest)
 		}
 		obj.IncrementResourceVersion()
@@ -584,11 +572,6 @@ func (s *Store[E]) Update(ctx context.Context, obj E) (E, error) {
 
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-
-	if !s.initialized {
-		s.log.Error(errors.New("cache became uninitialized during Update"), "Cache state inconsistent")
-		return utils.Zero[E](), errors.New("cache consistency error during update")
-	}
 
 	var eventType store.WatchEventType
 	if deleted {
@@ -635,8 +618,8 @@ func (w *watch[E]) Events() <-chan store.WatchEvent[E] {
 }
 
 func (s *Store[E]) Watch(ctx context.Context) (store.Watch[E], error) {
-	if err := s.initializeCache(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize cache for Watch: %w", err)
+	if !s.initialized.Load() {
+		return nil, ErrInitializedNotExecuted
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -657,9 +640,8 @@ func (s *Store[E]) Watch(ctx context.Context) (store.Watch[E], error) {
 }
 
 func (s *Store[E]) List(ctx context.Context) ([]E, error) {
-	// Ensure the cache is initialized
-	if err := s.initializeCache(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize cache for List: %w", err)
+	if !s.initialized.Load() {
+		return nil, ErrInitializedNotExecuted
 	}
 
 	s.log.V(2).Info("Listing objects from cache")
@@ -693,8 +675,8 @@ func (s *Store[E]) List(ctx context.Context) ([]E, error) {
 }
 
 func (s *Store[E]) ListByLabels(ctx context.Context, labelSelector map[string]string) ([]E, error) {
-	if err := s.initializeCache(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize cache for ListByLabels: %w", err)
+	if !s.initialized.Load() {
+		return nil, ErrInitializedNotExecuted
 	}
 	if len(labelSelector) == 0 {
 		s.log.V(1).Info("Empty label selector provided, returning all items (like List)")
