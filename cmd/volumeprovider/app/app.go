@@ -304,8 +304,15 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to initialize image reconciler: %w", err)
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
+	// Wait for the initial image cache synchronization to complete.
+	setupLog.Info("Waiting for initial image cache synchronization")
+	err = imageStore.InitializeCache()
+	if err != nil {
+		return fmt.Errorf("failed to initialize image cache: %w", err)
+	}
+	setupLog.Info("Image cache synchronization complete")
 
+	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		// Panic recovery for the image reconciler
 		defer internalutils.Recover(log, "image-reconciler")
@@ -335,6 +342,13 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to initialize snapshot reconciler: %w", err)
 	}
 
+	// Wait for the initial snapshot cache synchronization to complete.
+	setupLog.Info("Waiting for initial snapshot cache synchronization")
+	err = snapshotStore.InitializeCache()
+	if err != nil {
+		return fmt.Errorf("failed to initialize snapshot cache: %w", err)
+	}
+	setupLog.Info("Snapshot cache synchronization complete")
 	g.Go(func() error {
 		// Panic recovery for the snapshot reconciler
 		defer internalutils.Recover(log, "snapshot-reconciler")
