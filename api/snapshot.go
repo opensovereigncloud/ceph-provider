@@ -27,8 +27,9 @@ func (s *Snapshot) SetDeletionTimestamp(time *metav1.Time) {
 type SnapshotState string
 
 const (
-	SnapshotStatePending   SnapshotState = "Pending"
-	SnapshotStatePopulated SnapshotState = "Populated"
+	SnapshotStatePending SnapshotState = "Pending"
+	SnapshotStateReady   SnapshotState = "Ready"
+	SnapshotStateFailed  SnapshotState = "Failed"
 )
 
 type SnapshotStatus struct {
@@ -40,4 +41,5 @@ type SnapshotStatus struct {
 
 type SnapshotSource struct {
 	IronCoreImage string `json:"ironcoreImage"`
+	VolumeImageID string `json:"volumeImageId"`
 }

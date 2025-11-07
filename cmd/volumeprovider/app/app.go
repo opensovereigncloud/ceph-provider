@@ -260,9 +260,9 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to initialize image events: %w", err)
 	}
 
-	setupLog.Info("Configuring snapshot store", "OmapName", omap.NameOsImages)
+	setupLog.Info("Configuring snapshot store", "OmapName", omap.NameSnapshots)
 	snapshotStore, err := omap.New(radosConnWrapper, opts.Ceph.Pool, log.WithName("snapshot-store"), omap.Options[*providerapi.Snapshot]{
-		OmapName:       omap.NameOsImages,
+		OmapName:       omap.NameSnapshots,
 		NewFunc:        func() *providerapi.Snapshot { return &providerapi.Snapshot{} },
 		CreateStrategy: strategy.SnapshotStrategy,
 	})
@@ -333,6 +333,7 @@ func Run(ctx context.Context, opts Options) error {
 		conn,
 		reg,
 		snapshotStore,
+		imageStore,
 		snapshotEvents,
 		controllers.SnapshotReconcilerOptions{
 			Pool:                opts.Ceph.Pool,
