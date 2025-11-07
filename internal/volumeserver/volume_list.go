@@ -11,9 +11,6 @@ import (
 	"github.com/ceph/go-ceph/rados"
 	"github.com/go-logr/logr"
 
-	//"github.com/ironcore-dev/ceph-provider/api"
-
-	// <-- Import ceph api
 	"github.com/ironcore-dev/ceph-provider/api"
 	"github.com/ironcore-dev/ceph-provider/internal/utils"
 
@@ -44,50 +41,23 @@ func (s *Server) getIriVolume(ctx context.Context, log logr.Logger, imageId stri
 	if err != nil {
 		if errors.Is(err, utils.ErrVolumeNotFound) {
 			if errors.Is(err, rados.ErrNotFound) {
-				log.V(1).Info("OMAP not found for volume", "volumeID", imageId)
+				log.V(1).Info("OMAP not found for volume", "imageID", imageId)
 				return nil, status.Errorf(codes.NotFound, "volume %s not found (omap)", imageId)
 			}
-			log.V(1).Info("Volume not found in store", "volumeID", imageId)
+			log.V(1).Info("Volume not found in store", "imageID", imageId)
 			return nil, status.Errorf(codes.NotFound, "volume %s not found", imageId)
 		}
-		log.Error(err, "Failed to get volume from store", "volumeID", imageId)
+		log.Error(err, "Failed to get volume from store", "imageID", imageId)
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
 
 	if !api.IsObjectManagedBy(cephImage, api.VolumeManager) {
-		log.V(1).Info("Volume is not managed by this manager", "volumeID", imageId, "managerLabel", cephImage.GetLabels()["ceph-volume-manager"])
+		log.V(1).Info("Volume is not managed by this manager", "imageID", imageId, "managerLabel", cephImage.GetLabels()["ceph-volume-manager"])
 		return nil, status.Errorf(codes.NotFound, "volume %s not found (not managed)", imageId)
 	}
 
 	return s.convertImageToIriVolume(cephImage)
 }
-
-// func (s *Server) filterVolumes(volumes []*iri.Volume, filter *iri.VolumeFilter) []*iri.Volume {
-// 	if filter == nil || (filter.Id == "" && len(filter.LabelSelector) == 0) {
-// 		return volumes
-// 	}
-
-// 	var (
-// 		res []*iri.Volume
-// 		sel labels.Selector // Initialize sel outside the loop
-// 	)
-// 	if len(filter.LabelSelector) > 0 {
-// 		sel = labels.SelectorFromSet(filter.LabelSelector)
-// 	}
-// 	for _, iriVolume := range volumes {
-// 		// ID filter check (if ID filtering needs to be combined with others)
-// 		if filter.Id != "" && iriVolume.Metadata.Id != filter.Id {
-// 			continue
-// 		}
-// 		// Label filter check
-// 		if sel != nil && !sel.Matches(labels.Set(iriVolume.Metadata.Labels)) {
-// 			continue
-// 		}
-
-// 		res = append(res, iriVolume)
-// 	}
-// 	return res
-// }
 
 func (s *Server) listVolumes(ctx context.Context, log logr.Logger) ([]*iri.Volume, error) {
 	cephImages, err := s.imageStore.List(ctx)
@@ -140,12 +110,14 @@ func (s *Server) ListVolumes(ctx context.Context, req *iri.ListVolumesRequest) (
 	if filter != nil && len(filter.LabelSelector) > 0 {
 		log.V(1).Info("Filtering by Label Selector using index", "Selector", filter.LabelSelector)
 		listerWithLabels, ok := s.imageStore.(imageListerWithLabels[*api.Image])
+
 		if !ok {
 			log.Error(fmt.Errorf("imageStore does not support ListByLabels"), "Cannot use label index optimization")
 			goto SlowPath
 		}
 
 		cephImages, err := listerWithLabels.ListByLabels(ctx, filter.LabelSelector)
+
 		if err != nil {
 			log.Error(err, "Error listing volumes by labels from store", "Selector", filter.LabelSelector)
 			return nil, fmt.Errorf("error listing volumes by labels: %w", err)
@@ -169,7 +141,5 @@ SlowPath:
 		// listVolumes already logs the store error
 		return nil, utils.ConvertInternalErrorToGRPC(err)
 	}
-	// volumes = s.filterVolumes(volumes, req.Filter)
-	// log.V(2).Info("Returning volumes list")
 	return &iri.ListVolumesResponse{Volumes: volumes}, nil
 }
