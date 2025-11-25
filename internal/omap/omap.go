@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,16 @@ import (
 
 type CreateStrategy[E apiutils.Object] interface {
 	PrepareForCreate(obj E)
+}
+
+type CacheItem struct {
+	ID      string
+	RawData []byte
+}
+
+type sizedLabel struct {
+	ids  sets.Set[string]
+	size int
 }
 
 var (
@@ -644,28 +655,34 @@ func (s *Store[E]) List(ctx context.Context) ([]E, error) {
 		return nil, ErrInitializedNotExecuted
 	}
 
-	s.log.V(2).Info("Listing objects from cache")
-	s.cacheMu.RLock() // Use a read lock to safely access the cache.
-	//defer s.cacheMu.RUnlock()
-
 	s.log.V(1).Info("Attempting to list objects from in-memory cache", "count", len(s.cache))
+	s.cacheMu.RLock()
 
-	// Create a snapshot of the cache values to iterate over after releasing the lock
-	rawDataList := make([][]byte, 0, len(s.cache))
-	idsForDebug := make([]string, 0, len(s.cache)) // For logging potential errors
+	// Pre-allocate the list capacity to avoid memory re-allocations
+	itemsList := make([]CacheItem, 0, len(s.cache))
+
+	// Create a snapshot (deep copy) while holding the lock
 	for id, data := range s.cache {
-		rawDataList = append(rawDataList, data)
-		idsForDebug = append(idsForDebug, id) // Collect IDs corresponding to rawDataList order
+		// Deep copy the []byte data. This prevents data corruption
+		// if an external source mutates the underlying array after the lock is released.
+		dataCopy := make([]byte, len(data))
+		copy(dataCopy, data)
+
+		itemsList = append(itemsList, CacheItem{
+			ID:      id,
+			RawData: dataCopy,
+		})
 	}
+
 	s.cacheMu.RUnlock()
 
-	objs := make([]E, 0, len(rawDataList))
-	for i, rawData := range rawDataList {
+	objs := make([]E, 0, len(itemsList))
+	for _, item := range itemsList {
 		obj := s.newFunc()
-		if err := json.Unmarshal(rawData, &obj); err != nil {
-			objID := idsForDebug[i]
-			s.log.Error(err, "Failed to unmarshal object data from cache during List", "id", objID)
-			return nil, fmt.Errorf("failed to unmarshal object data for id %q during list: %w", objID, err)
+
+		if err := json.Unmarshal(item.RawData, &obj); err != nil {
+			s.log.Error(err, "Failed to unmarshal object data from cache during List", "id", item.ID)
+			return nil, fmt.Errorf("failed to unmarshal object data for id %q during list: %w", item.ID, err)
 		}
 		objs = append(objs, obj)
 	}
@@ -687,8 +704,11 @@ func (s *Store[E]) ListByLabels(ctx context.Context, labelSelector map[string]st
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 
+	// pre-allocate the slice to avoid extra memory allocations
+	labelSelect := make([]sizedLabel, 0, len(labelSelector))
 	var intersection sets.Set[string]
 
+	// 1 .Gather label set sizes and check for immediate non-matches.
 	for key, value := range labelSelector {
 		label := formatLabel(key, value)
 		ids, found := s.labelIndex[label]
@@ -697,23 +717,39 @@ func (s *Store[E]) ListByLabels(ctx context.Context, labelSelector map[string]st
 			return []E{}, nil
 		}
 
-		if intersection == nil {
+		labelSelect = append(labelSelect, sizedLabel{
+			ids:  ids,
+			size: ids.Len(),
+		})
+	}
+	if len(labelSelect) > 1 {
+		// 2. Sort the labels by the size of their matching set (smallest first).
+		sort.Slice(labelSelect, func(i, j int) bool {
+			return labelSelect[i].size < labelSelect[j].size
+		})
+	}
+
+	var isFirstLabel = true
+
+	// 3. Iterate over the sorted slice (labelsForSort) to compute the intersection.
+	for _, info := range labelSelect {
+		ids := info.ids
+		if isFirstLabel {
+			// Use the smallest set to initialize the intersection (copy to avoid modifying the index set).
 			intersection = ids.Clone()
-			s.log.V(1).Info("Initialized intersection set", "label", label, "initial_count", intersection.Len())
+			s.log.V(1).Info("Initialized intersection set with label", "initial_count", intersection.Len())
+			isFirstLabel = false
 		} else {
+			// Intersect the current result with the next smallest set.
 			prevCount := intersection.Len()
 			intersection = intersection.Intersection(ids)
-			s.log.V(1).Info("Computed intersection", "label", label, "previous_count", prevCount, "new_count", intersection.Len())
+			s.log.V(1).Info("Computed intersection", "previous_count", prevCount, "new_count", intersection.Len())
 		}
 
 		if intersection.Len() == 0 {
 			s.log.V(1).Info("Intersection of label matches became empty, returning empty list", "selector", labelSelector)
 			return []E{}, nil
 		}
-	}
-	if intersection == nil || intersection.Len() == 0 {
-		s.log.V(1).Info("No matching objects found for the given label selector after checking all labels", "selector", labelSelector)
-		return []E{}, nil
 	}
 
 	objs := make([]E, 0, intersection.Len())
