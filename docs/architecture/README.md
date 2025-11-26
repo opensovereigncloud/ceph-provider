@@ -9,7 +9,7 @@ A `ceph-provider` is usually deployed along with a [poollet](https://github.com/
 A poollet resolves dependencies, e.g. an encryption secret, and calls with the consolidated resource the `ceph-provider`.
 The `ceph-provider` persists the required state and reconciles the resource in an asynchronous manner.
 
-## ceph-volume-provider
+## [ceph-volume-provider](./ceph-volume-provider-architecture.md)
 
 The `ceph-volume-provider` interacts directly with a defined `ceph cluster`.
 A `Volume` is provisioned by creating a `ceph image`. If needed, an image is created with a pre-defined `os image`.
@@ -30,7 +30,7 @@ graph TD
     C -- defines --> VC[Supported VolumeClasses]
 ```
 
-## ceph-bucket-provider
+## [ceph-bucket-provider](./ceph-bucket-provider-architecture.md)
 
 The `ceph-bucket-provider` utilizes `rook` CRD's to back the ironcore `Bucket` resource.
 Rook ensures that a `ObjectBucketClaim` (and an access secret) is being reconciled.
