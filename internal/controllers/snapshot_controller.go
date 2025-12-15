@@ -111,6 +111,28 @@ type SnapshotReconciler struct {
 	workerSize          int
 }
 
+// RecordImageContentHash writes the expected content hash (digest) to the RBD image metadata.
+// This acts as a cache marker.
+func (r *SnapshotReconciler) RecordImageContentHash(rbdImg *librbd.Image, hash string) error {
+	if err := rbdImg.SetMetadata(ImageRBDContentHashKey, hash); err != nil {
+		return fmt.Errorf("failed to set RBD metadata key %s: %w", ImageRBDContentHashKey, err)
+	}
+	r.log.V(1).Info("Recorded image content hash on RBD image metadata", "key", ImageRBDContentHashKey, "hash", hash)
+	return nil
+}
+
+// IsRBDImageContentValid checks if the RBD image already contains the content corresponding to the expected hash.
+func (r *SnapshotReconciler) IsRBDImageContentValid(rbdImg *librbd.Image, expectedHash string) bool {
+	storedHash, err := rbdImg.GetMetadata(ImageRBDContentHashKey)
+	if err != nil {
+		// If metadata is missing or error occurred, treat as invalid/unpopulated
+		r.log.V(2).Info("RBD image content hash metadata missing or inaccessible", "key", ImageRBDContentHashKey, "err", err)
+		return false
+	}
+	r.log.V(1).Info("Checking content validity", "key", ImageRBDContentHashKey, "storedHash", storedHash, "expectedHash", expectedHash)
+	return storedHash == expectedHash
+}
+
 func (r *SnapshotReconciler) Start(ctx context.Context) error {
 	log := r.log
 
@@ -438,7 +460,7 @@ func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context,
 	}
 	log.V(2).Info("Created rbd image", "bytes", roundedSize)
 
-	if err := r.prepareSnapshotContent(log, ioCtx, imageName, rc); err != nil {
+	if err := r.prepareSnapshotContent(log, ioCtx, imageName, rc, digest); err != nil {
 		return fmt.Errorf("failed to prepare snapshot content: %w", err)
 	}
 
@@ -497,7 +519,7 @@ func (r *SnapshotReconciler) openIroncoreImageSource(ctx context.Context, imageR
 	return content, uint64(rootFS.Descriptor().Size), img.Descriptor().Digest.String(), nil
 }
 
-func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, imageName string, rc io.ReadCloser) error {
+func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, imageName string, rc io.ReadCloser, expectedHash string) error {
 	rbdImg, err := openImage(ioCtx, imageName)
 	if err != nil {
 		return err
@@ -514,10 +536,29 @@ func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rado
 		return nil
 	}
 
-	if err := r.populateImage(log, rbdImg, rc); err != nil {
-		return fmt.Errorf("failed to populate os image: %w", err)
+	isContentValid := r.IsRBDImageContentValid(rbdImg, expectedHash)
+
+	log.V(1).Info("Content Caching Check",
+		"ContentValid", isContentValid,
+		"ExpectedHash", expectedHash,
+		"RBDImageID", imageName,
+	)
+	if !isContentValid {
+		log.V(1).Info("Volume content missing or mismatched. Starting network population.", ImageRBDContentHashKey, expectedHash)
+
+		// Only populate if content is not valid
+		if err := r.populateImage(log, rbdImg, rc); err != nil {
+			return fmt.Errorf("failed to populate os image: %w", err)
+		}
+		// Record the hash immediately after successful population (the cache mechanism).
+		if err := r.RecordImageContentHash(rbdImg, expectedHash); err != nil {
+			log.Error(err, "Failed to record content hash on RBD image. Proceeding to snapshot.", "key", ImageRBDContentHashKey)
+		}
+
+		log.V(1).Info("RBD image content successfully populated and content hash recorded")
+	} else {
+		log.V(1).Info("Volume content already present and valid (cache hit). Skipping network population.")
 	}
-	log.V(2).Info("Populated os image on rbd image")
 
 	return nil
 }

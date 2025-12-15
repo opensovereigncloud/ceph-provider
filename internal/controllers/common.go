@@ -19,6 +19,8 @@ const (
 
 	ImageSnapshotVersion = "v1"
 
+	ImageRBDContentHashKey = "ceph.snapshot.contenthash"
+
 	LogKeyImageID     = "imageID"
 	LogKeyReconcileID = "reconcileID"
 	LogKeySnapshotID  = "snapshotID"
