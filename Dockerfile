@@ -19,11 +19,14 @@ COPY hack/ hack/
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG BUILDPLATFORM
+ARG LDFLAGS
+ENV BUILDARCH=${BUILDPLATFORM##*/}
 
 FROM builder AS ceph-bucket-provider-builder
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GO111MODULE=on go build -ldflags="-s -w" -a -o bin/ceph-bucket-provider ./cmd/bucketprovider/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GO111MODULE=on go build -ldflags="${LDFLAGS}" -a -o bin/ceph-bucket-provider ./cmd/bucketprovider/main.go
 
 # Start from Kubernetes Debian base.
 FROM builder AS ceph-volume-provider-builder
@@ -34,7 +37,19 @@ RUN apt update && apt install -y libcephfs-dev librbd-dev librados-dev libc-bin 
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-    CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH GO111MODULE=on go build -ldflags="-s -w" -a -o bin/ceph-volume-provider ./cmd/volumeprovider/main.go
+    if [ "$TARGETARCH" != "$BUILDARCH" ] && [ "$TARGETARCH" = "arm64" ]; then \
+      export CC="/usr/bin/aarch64-linux-gnu-gcc"; \
+      export CGO_LDFLAGS="-L/usr/lib/aarch64-linux-gnu -Wl,-lrados -Wl,-lrbd"; \
+    elif [ "$TARGETARCH" != "$BUILDARCH" ] && [ "$TARGETARCH" = "amd64" ]; then \
+      export CC="/usr/bin/x86_64-linux-gnu-gcc"; \
+      export CGO_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -Wl,-lrados -Wl,-lrbd"; \
+    else \
+      export CC="/usr/bin/gcc"; \
+      export CGO_LDFLAGS=""; \
+    fi && \
+    CGO_ENABLED=1 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    CC="$CC" CGO_LDFLAGS="$CGO_LDFLAGS" GO111MODULE=on \
+    go build -ldflags="${LDFLAGS} -linkmode=external" -a -o bin/ceph-volume-provider ./cmd/volumeprovider/main.go
 
 FROM debian:trixie-slim AS ceph-volume-provider-image
 ENV LIB_DIR_PREFIX=x86_64
