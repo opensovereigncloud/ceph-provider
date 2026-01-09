@@ -62,6 +62,8 @@ type CephOptions struct {
 
 	VolumeEventStoreOptions eventrecorder.EventStoreOptions
 	ImageResyncInterval     time.Duration
+
+	WorkerSize int
 }
 
 func (o *Options) Defaults() {
@@ -71,6 +73,7 @@ func (o *Options) Defaults() {
 	o.Ceph.PopulatorBufferSize = 5 * 1024 * 1024
 	o.SnapshotInactivityTimeout = 168 * time.Hour // Default to 7 days for snapshot inactivity timeout
 	o.Ceph.ImageResyncInterval = 20 * time.Minute // Default rsync interval 20 minutes
+	o.Ceph.WorkerSize = 15
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -96,6 +99,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.Ceph.VolumeEventStoreOptions.ResyncInterval, "volume-event-resync-interval", 1*time.Minute, "Interval for resynchronizing the volume events.")
 	fs.DurationVar(&o.SnapshotInactivityTimeout, "snapshot-inactivity-timeout", o.SnapshotInactivityTimeout, "Duration after which an unused populated snapshot is marked for deletion. Set to 0 to disable automatic deletion.")
 	fs.DurationVar(&o.Ceph.ImageResyncInterval, "image-resync-interval", o.Ceph.ImageResyncInterval, "Interval for periodically resyncing the stored image list to ensure consistency.")
+	fs.IntVar(&o.Ceph.WorkerSize, "worker-size", o.Ceph.WorkerSize, "Defines the factor to calculate the burst limits.")
 }
 
 func (o *Options) MarkFlagsRequired(cmd *cobra.Command) {
@@ -185,6 +189,13 @@ func configureCephAuth(opts *CephOptions) (func() error, error) {
 func Run(ctx context.Context, opts Options) error {
 	log := ctrl.LoggerFrom(ctx)
 	setupLog := log.WithName("setup")
+
+	if opts.Ceph.WorkerSize <= 1 {
+		err := fmt.Errorf("invalid configuration: worker-size must be greater than 1, but got %d", opts.Ceph.WorkerSize)
+		setupLog.Error(err, "Worker size validation failed")
+		return err
+	}
+
 	var wg sync.WaitGroup
 
 	cleanup, err := configureCephAuth(&opts.Ceph)
@@ -283,9 +294,10 @@ func Run(ctx context.Context, opts Options) error {
 		snapshotEvents,
 		encryptor,
 		controllers.ImageReconcilerOptions{
-			Monitors: opts.Ceph.Monitors,
-			Client:   opts.Ceph.Client,
-			Pool:     opts.Ceph.Pool,
+			Monitors:   opts.Ceph.Monitors,
+			Client:     opts.Ceph.Client,
+			Pool:       opts.Ceph.Pool,
+			WorkerSize: opts.Ceph.WorkerSize,
 		},
 	)
 	if err != nil {
@@ -322,6 +334,7 @@ func Run(ctx context.Context, opts Options) error {
 			Pool:                opts.Ceph.Pool,
 			PopulatorBufferSize: opts.Ceph.PopulatorBufferSize,
 			InactivityTimeout:   opts.SnapshotInactivityTimeout,
+			WorkerSize:          opts.Ceph.WorkerSize,
 		},
 	)
 	if err != nil {

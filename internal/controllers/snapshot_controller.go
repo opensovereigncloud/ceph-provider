@@ -31,6 +31,7 @@ type SnapshotReconcilerOptions struct {
 	Pool                string
 	PopulatorBufferSize int64
 	InactivityTimeout   time.Duration
+	WorkerSize          int
 }
 
 func NewSnapshotReconciler(
@@ -79,6 +80,7 @@ func NewSnapshotReconciler(
 		pool:                opts.Pool,
 		populatorBufferSize: opts.PopulatorBufferSize,
 		inactivityTimeout:   opts.InactivityTimeout,
+		workerSize:          opts.WorkerSize,
 	}, nil
 }
 
@@ -95,6 +97,7 @@ type SnapshotReconciler struct {
 	pool                string
 	populatorBufferSize int64
 	inactivityTimeout   time.Duration
+	workerSize          int
 }
 
 // RecordImageContentHash writes the expected content hash (digest) to the RBD image metadata.
@@ -152,9 +155,6 @@ func (r *SnapshotReconciler) openSnapshotSource(ctx context.Context, src provide
 func (r *SnapshotReconciler) Start(ctx context.Context) error {
 	log := r.log
 
-	//todo make configurable
-	workerSize := 15
-
 	reg, err := r.events.AddHandler(event.HandlerFunc[*providerapi.Snapshot](func(event event.Event[*providerapi.Snapshot]) {
 		r.queue.Add(event.Object.ID)
 	}))
@@ -173,7 +173,7 @@ func (r *SnapshotReconciler) Start(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
-	for i := 0; i < workerSize; i++ {
+	for i := 0; i < r.workerSize; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
