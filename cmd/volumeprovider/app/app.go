@@ -62,9 +62,9 @@ type CephOptions struct {
 	KeyEncryptionKeyPath string
 
 	VolumeEventStoreOptions eventrecorder.EventStoreOptions
+	ImageResyncInterval     time.Duration
 
-	WorkerSize          int
-	ImageResyncInterval time.Duration
+	WorkerSize int
 }
 
 func (o *Options) Defaults() {
@@ -72,9 +72,9 @@ func (o *Options) Defaults() {
 	o.Ceph.BurstFactor = 10
 	o.Ceph.BurstDurationInSeconds = 15
 	o.Ceph.PopulatorBufferSize = 5 * 1024 * 1024
-	o.Ceph.WorkerSize = 15
 	o.SnapshotInactivityTimeout = 7 * 24 * time.Hour // Default to 7 days for snapshot inactivity timeout
 	o.Ceph.ImageResyncInterval = 20 * time.Minute    // Default rsync interval 20 minutes
+	o.Ceph.WorkerSize = 15
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -102,6 +102,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&o.Ceph.WorkerSize, "worker-size", o.Ceph.WorkerSize, "Defines the factor to calculate the burst limits.")
 	fs.DurationVar(&o.SnapshotInactivityTimeout, "snapshot-inactivity-timeout", o.SnapshotInactivityTimeout, "Duration after which an unused populated snapshot is marked for deletion. Set to 0 to disable automatic deletion.")
 	fs.DurationVar(&o.Ceph.ImageResyncInterval, "image-resync-interval", o.Ceph.ImageResyncInterval, "Interval for periodically resyncing the stored image list to ensure consistency.")
+	fs.IntVar(&o.Ceph.WorkerSize, "worker-size", o.Ceph.WorkerSize, "Defines the factor to calculate the burst limits.")
 }
 
 func (o *Options) MarkFlagsRequired(cmd *cobra.Command) {
@@ -334,8 +335,8 @@ func Run(ctx context.Context, opts Options) error {
 		controllers.SnapshotReconcilerOptions{
 			Pool:                opts.Ceph.Pool,
 			PopulatorBufferSize: opts.Ceph.PopulatorBufferSize,
-			WorkerSize:          opts.Ceph.WorkerSize,
 			InactivityTimeout:   opts.SnapshotInactivityTimeout,
+			WorkerSize:          opts.Ceph.WorkerSize,
 		},
 	)
 	if err != nil {

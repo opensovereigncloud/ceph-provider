@@ -32,6 +32,7 @@ type SnapshotReconcilerOptions struct {
 	PopulatorBufferSize int64
 	WorkerSize          int
 	InactivityTimeout   time.Duration
+	WorkerSize          int
 }
 
 func NewSnapshotReconciler(
@@ -91,6 +92,7 @@ func NewSnapshotReconciler(
 		populatorBufferSize: opts.PopulatorBufferSize,
 		workerSize:          opts.WorkerSize,
 		inactivityTimeout:   opts.InactivityTimeout,
+		workerSize:          opts.WorkerSize,
 	}, nil
 }
 
