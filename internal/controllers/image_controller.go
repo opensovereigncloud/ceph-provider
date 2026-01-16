@@ -505,6 +505,7 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 			log.V(2).Info("Create image snapshot", "SnapshotID", snapshotDigest)
+			r.Eventf(img.Metadata, corev1.EventTypeNormal, "CreateImageSnapshotInitiated", "Image snapshot was not found. Creating new snapshot")
 			snap, err = r.snapshots.Create(ctx, &providerapi.Snapshot{
 				Metadata: apiutils.Metadata{
 					ID: snapshotDigest,
@@ -533,6 +534,7 @@ func (r *ImageReconciler) reconcileSnapshot(ctx context.Context, log logr.Logger
 		return fmt.Errorf("failed to update image snapshot ref: %w", err)
 	}
 
+	r.Eventf(img.Metadata, corev1.EventTypeNormal, "UpdateImageSnapshotRefSucceeded", "Updated image snapshot ref: %s", *img.Spec.SnapshotRef)
 	return nil
 }
 
@@ -584,7 +586,7 @@ func (r *ImageReconciler) updateImage(ctx context.Context, log logr.Logger, ioCt
 	if _, err = r.images.Update(ctx, image); err != nil {
 		return fmt.Errorf("failed to update size information of image: %w", err)
 	}
-	r.Eventf(image.Metadata, corev1.EventTypeNormal, "UpdatedImageSizeSucceeded", "Updated image size. requestedSize: %d currentSize: %d", requestedSize, currentImageSize)
+	r.Eventf(image.Metadata, corev1.EventTypeNormal, "UpdateImageSizeSucceeded", "Updated image size. requestedSize: %d currentSize: %d", requestedSize, currentImageSize)
 	log.V(1).Info("Updated image", "requestedSize", requestedSize, "currentSize", currentImageSize)
 	return nil
 }
