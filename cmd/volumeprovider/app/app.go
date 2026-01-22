@@ -41,7 +41,8 @@ type Options struct {
 	PathSupportedVolumeClasses string
 	SnapshotInactivityTimeout  time.Duration
 
-	Ceph CephOptions
+	Ceph                CephOptions
+	GRPCShutdownTimeout time.Duration
 }
 
 type CephOptions struct {
@@ -75,6 +76,7 @@ func (o *Options) Defaults() {
 	o.SnapshotInactivityTimeout = 7 * 24 * time.Hour // Default to 7 days for snapshot inactivity timeout
 	o.Ceph.ImageResyncInterval = 20 * time.Minute    // Default rsync interval 20 minutes
 	o.Ceph.WorkerSize = 15
+	o.GRPCShutdownTimeout = 30 * time.Second // Default gRPC shutdown timeout
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -103,6 +105,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.SnapshotInactivityTimeout, "snapshot-inactivity-timeout", o.SnapshotInactivityTimeout, "Duration after which an unused populated snapshot is marked for deletion. Set to 0 to disable automatic deletion.")
 	fs.DurationVar(&o.Ceph.ImageResyncInterval, "image-resync-interval", o.Ceph.ImageResyncInterval, "Interval for periodically resyncing the stored image list to ensure consistency.")
 	fs.IntVar(&o.Ceph.WorkerSize, "worker-size", o.Ceph.WorkerSize, "Defines the factor to calculate the burst limits.")
+	fs.DurationVar(&o.GRPCShutdownTimeout, "grpc-shutdown-timeout", o.GRPCShutdownTimeout, "Duration to wait for gRPC requests to finish before forceful shutdown (e.g., 30s, 1m).")
 }
 
 func (o *Options) MarkFlagsRequired(cmd *cobra.Command) {
@@ -470,15 +473,22 @@ func runGRPCServer(ctx context.Context, setupLog logr.Logger, log logr.Logger, s
 	go func() {
 		// Panic recovery for the gRPC shutdown handler
 		defer internalutils.Recover(log, "grpc-shutdown-handler")
-		defer func() {
-			setupLog.Info("Shutting down server")
-			grpcSrv.Stop()
-			setupLog.Info("Shut down server")
-		}()
 		<-ctx.Done()
-		setupLog.Info("Shutting down grpc server")
-		grpcSrv.GracefulStop()
-		setupLog.Info("Shut down grpc server")
+		setupLog.Info("Shutting down grpc server", "Timeout", opts.GRPCShutdownTimeout)
+
+		done := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			setupLog.Info("Shut down grpc server gracefully")
+		case <-time.After(opts.GRPCShutdownTimeout):
+			setupLog.Info("Forcing grpc server shutdown after timeout")
+			grpcSrv.Stop()
+		}
 	}()
 	if err := grpcSrv.Serve(l); err != nil {
 		return fmt.Errorf("error serving grpc: %w", err)
