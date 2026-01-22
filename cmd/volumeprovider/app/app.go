@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	providerapi "github.com/ironcore-dev/ceph-provider/api"
 	"github.com/ironcore-dev/ceph-provider/internal/ceph"
 	"github.com/ironcore-dev/ceph-provider/internal/controllers"
@@ -29,6 +29,7 @@ import (
 	eventrecorder "github.com/ironcore-dev/provider-utils/eventutils/recorder"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -40,7 +41,8 @@ type Options struct {
 	PathSupportedVolumeClasses string
 	SnapshotInactivityTimeout  time.Duration
 
-	Ceph CephOptions
+	Ceph                CephOptions
+	GRPCShutdownTimeout time.Duration
 }
 
 type CephOptions struct {
@@ -74,6 +76,7 @@ func (o *Options) Defaults() {
 	o.SnapshotInactivityTimeout = 168 * time.Hour // Default to 7 days for snapshot inactivity timeout
 	o.Ceph.ImageResyncInterval = 20 * time.Minute // Default rsync interval 20 minutes
 	o.Ceph.WorkerSize = 15
+	o.GRPCShutdownTimeout = 30 * time.Second // Default gRPC shutdown timeout
 }
 
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
@@ -100,6 +103,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.SnapshotInactivityTimeout, "snapshot-inactivity-timeout", o.SnapshotInactivityTimeout, "Duration after which an unused populated snapshot is marked for deletion. Set to 0 to disable automatic deletion.")
 	fs.DurationVar(&o.Ceph.ImageResyncInterval, "image-resync-interval", o.Ceph.ImageResyncInterval, "Interval for periodically resyncing the stored image list to ensure consistency.")
 	fs.IntVar(&o.Ceph.WorkerSize, "worker-size", o.Ceph.WorkerSize, "Defines the factor to calculate the burst limits.")
+	fs.DurationVar(&o.GRPCShutdownTimeout, "grpc-shutdown-timeout", o.GRPCShutdownTimeout, "Duration to wait for gRPC requests to finish before forceful shutdown (e.g., 30s, 1m).")
 }
 
 func (o *Options) MarkFlagsRequired(cmd *cobra.Command) {
@@ -195,8 +199,6 @@ func Run(ctx context.Context, opts Options) error {
 		setupLog.Error(err, "Worker size validation failed")
 		return err
 	}
-
-	var wg sync.WaitGroup
 
 	cleanup, err := configureCephAuth(&opts.Ceph)
 	if err != nil {
@@ -313,16 +315,18 @@ func Run(ctx context.Context, opts Options) error {
 
 	setupLog.Info("Image cache synchronization complete")
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
 		// Panic recovery for the image reconciler
 		defer internalutils.Recover(log, "image-reconciler")
 		setupLog.Info("Starting image reconciler")
-		if err := imageReconciler.Start(ctx); err != nil {
-			log.Error(err, "failed to start image reconciler")
+		if err := imageReconciler.Start(gctx); err != nil {
+			setupLog.Error(err, "failed to start image reconciler")
+			return err
 		}
-	}()
+		return nil
+	})
 
 	snapshotReconciler, err := controllers.NewSnapshotReconciler(
 		log.WithName("snapshot-reconciler"),
@@ -350,48 +354,46 @@ func Run(ctx context.Context, opts Options) error {
 
 	setupLog.Info("Snapshot cache synchronization complete")
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		// Panic recovery for the snapshot reconciler
 		defer internalutils.Recover(log, "snapshot-reconciler")
 		setupLog.Info("Starting snapshot reconciler")
-		if err := snapshotReconciler.Start(ctx); err != nil {
-			log.Error(err, "failed to start snapshot reconciler")
+		if err := snapshotReconciler.Start(gctx); err != nil {
+			setupLog.Error(err, "failed to start snapshot reconciler")
+			return err
 		}
+		return nil
+	})
 
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		// Panic recovery for the image events source
 		defer internalutils.Recover(log, "image-events-start")
 		setupLog.Info("Starting image events")
-		if err := imageEvents.Start(ctx); err != nil {
-			log.Error(err, "failed to start image events")
+		if err := imageEvents.Start(gctx); err != nil {
+			setupLog.Error(err, "failed to start image events")
+			return err
 		}
-	}()
+		return nil
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		// Panic recovery for the snapshot events source
 		defer internalutils.Recover(log, "snapshot-events-start")
 		setupLog.Info("Starting snapshot events")
-		if err := snapshotEvents.Start(ctx); err != nil {
-			log.Error(err, "failed to start snapshot events")
+		if err := snapshotEvents.Start(gctx); err != nil {
+			setupLog.Error(err, "failed to start snapshot events")
+			return err
 		}
-	}()
+		return nil
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		// Panic recovery for the volume events garbage collector
 		defer internalutils.Recover(log, "volume-event-gc-start")
 		setupLog.Info("Starting volume events garbage collector")
-		volumeEventStore.Start(ctx)
-	}()
+		volumeEventStore.Start(gctx)
+		return nil
+	})
 
 	supportedClasses, err := vcr.LoadVolumeClassesFile(opts.PathSupportedVolumeClasses)
 	if err != nil {
@@ -424,19 +426,30 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("error creating server: %w", err)
 	}
 
-	log.V(1).Info("Cleaning up any previous socket")
+	g.Go(func() error {
+		setupLog.Info("Starting grpc server")
+		if err := runGRPCServer(gctx, setupLog, log, srv, opts); err != nil {
+			setupLog.Error(err, "failed to start grpc server")
+			return err
+		}
+		return nil
+	})
+	return g.Wait()
+}
+func runGRPCServer(ctx context.Context, setupLog logr.Logger, log logr.Logger, srv *volumeserver.Server, opts Options) error {
+	setupLog.V(1).Info("Cleaning up any previous socket")
 	if err := common.CleanupSocketIfExists(opts.Address); err != nil {
 		return fmt.Errorf("error cleaning up socket: %w", err)
 	}
 
-	log.V(1).Info("Start listening on unix socket", "Address", opts.Address)
+	setupLog.V(1).Info("Start listening on unix socket", "Address", opts.Address)
 	l, err := net.Listen("unix", opts.Address)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 	defer func() {
 		if err := l.Close(); err != nil {
-			log.Error(err, "Error closing socket")
+			setupLog.Error(err, "failed to close listener")
 		}
 	}()
 
@@ -456,20 +469,29 @@ func Run(ctx context.Context, opts Options) error {
 	)
 	iriv1alpha1.RegisterVolumeRuntimeServer(grpcSrv, srv)
 
-	setupLog.Info("Starting server", "Address", l.Addr().String())
+	setupLog.Info("Starting grpc server", "Address", l.Addr().String())
 	go func() {
 		// Panic recovery for the gRPC shutdown handler
 		defer internalutils.Recover(log, "grpc-shutdown-handler")
-		defer func() {
-			setupLog.Info("Shutting down server")
-			grpcSrv.Stop()
-			setupLog.Info("Shut down server")
-		}()
 		<-ctx.Done()
+		setupLog.Info("Shutting down grpc server", "Timeout", opts.GRPCShutdownTimeout)
+
+		done := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			setupLog.Info("Shut down grpc server gracefully")
+		case <-time.After(opts.GRPCShutdownTimeout):
+			setupLog.Info("Forcing grpc server shutdown after timeout")
+			grpcSrv.Stop()
+		}
 	}()
 	if err := grpcSrv.Serve(l); err != nil {
-		return fmt.Errorf("error serving: %w", err)
+		return fmt.Errorf("error serving grpc: %w", err)
 	}
-	wg.Wait()
 	return nil
 }
