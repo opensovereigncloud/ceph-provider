@@ -582,8 +582,6 @@ github.com/ironcore-dev/controller-utils v0.10.0 h1:nG+TsVMtxt6PLJrlLr2LePYd8cOx
 github.com/ironcore-dev/controller-utils v0.10.0/go.mod h1:ZGv1A78M0X2G20ex/7F5BbyHoG0+7U2IWfqvzHh8T+4=
 github.com/ironcore-dev/ironcore v0.2.5-0.20250923112018-311a2542fc90 h1:UBlDo9hHlY3RjccWN5PCfLUnekB6L5Rut6sYE8t8lz0=
 github.com/ironcore-dev/ironcore v0.2.5-0.20250923112018-311a2542fc90/go.mod h1:cFdY+m7Iy3hzYZHOF+TQzKZATLzvtW1cVD+Z26W3LuE=
-github.com/ironcore-dev/ironcore-image v0.2.5 h1:ImJD3B1p1/JVs5vx7YB3c8dwH/EHyWOcgWUqhTUmsR0=
-github.com/ironcore-dev/ironcore-image v0.2.5/go.mod h1:pQLc+7dzgjYORTpEM9ORM757Vm14EQRju9hsvR8VT/U=
 github.com/ironcore-dev/provider-utils v0.0.0-20250617134512-c47138779fed h1:33OI50C0uNUyQf6yaUAMFfdVqUZcwspdZbPPG1l8noc=
 github.com/ironcore-dev/provider-utils v0.0.0-20250617134512-c47138779fed/go.mod h1:eRrTKf37eqHL4ucflPSbskwI/OcgcouYew/byJnIycw=
 github.com/jmespath/go-jmespath v0.4.0/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=

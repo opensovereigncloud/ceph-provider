@@ -316,12 +316,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	setupLog.Info("Image cache synchronization complete")
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		// Panic recovery for the image reconciler
 		defer internalutils.Recover(log, "image-reconciler")
 		setupLog.Info("Starting image reconciler")
-		if err := imageReconciler.Start(ctx); err != nil {
+		if err := imageReconciler.Start(gctx); err != nil {
 			setupLog.Error(err, "failed to start image reconciler")
 			return err
 		}
@@ -353,11 +353,12 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to initialize snapshot cache: %w", err)
 	}
 	setupLog.Info("Snapshot cache synchronization complete")
+
 	g.Go(func() error {
 		// Panic recovery for the snapshot reconciler
 		defer internalutils.Recover(log, "snapshot-reconciler")
 		setupLog.Info("Starting snapshot reconciler")
-		if err := snapshotReconciler.Start(ctx); err != nil {
+		if err := snapshotReconciler.Start(gctx); err != nil {
 			setupLog.Error(err, "failed to start snapshot reconciler")
 			return err
 		}
@@ -368,7 +369,7 @@ func Run(ctx context.Context, opts Options) error {
 		// Panic recovery for the image events source
 		defer internalutils.Recover(log, "image-events-start")
 		setupLog.Info("Starting image events")
-		if err := imageEvents.Start(ctx); err != nil {
+		if err := imageEvents.Start(gctx); err != nil {
 			setupLog.Error(err, "failed to start image events")
 			return err
 		}
@@ -379,7 +380,7 @@ func Run(ctx context.Context, opts Options) error {
 		// Panic recovery for the snapshot events source
 		defer internalutils.Recover(log, "snapshot-events-start")
 		setupLog.Info("Starting snapshot events")
-		if err := snapshotEvents.Start(ctx); err != nil {
+		if err := snapshotEvents.Start(gctx); err != nil {
 			setupLog.Error(err, "failed to start snapshot events")
 			return err
 		}
@@ -390,7 +391,7 @@ func Run(ctx context.Context, opts Options) error {
 		// Panic recovery for the volume events garbage collector
 		defer internalutils.Recover(log, "volume-event-gc-start")
 		setupLog.Info("Starting volume events garbage collector")
-		volumeEventStore.Start(ctx)
+		volumeEventStore.Start(gctx)
 		return nil
 	})
 
@@ -427,7 +428,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	g.Go(func() error {
 		setupLog.Info("Starting grpc server")
-		if err := runGRPCServer(ctx, setupLog, log, srv, opts); err != nil {
+		if err := runGRPCServer(gctx, setupLog, log, srv, opts); err != nil {
 			setupLog.Error(err, "failed to start grpc server")
 			return err
 		}

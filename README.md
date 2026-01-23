@@ -23,13 +23,13 @@ You’ll need a Kubernetes cluster to run against. You can use [KIND](https://si
     kubectl apply -f config/samples/
     ```
 
-1. Build and push your image to the location specified by `IMG`:
+2. Build and push your image to the location specified by `IMG`:
 
     ```bash
     make docker-build docker-push IMG=<some-registry>/ceph-provider:tag
     ```
 
-1. Deploy the controller to the cluster with the image specified by `IMG`:
+3. Deploy the controller to the cluster with the image specified by `IMG`:
 
     ```bash
     make deploy IMG=<some-registry>/ceph-provider:tag

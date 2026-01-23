@@ -63,10 +63,10 @@ func (s *Server) listVolumes(ctx context.Context, log logr.Logger) ([]*iri.Volum
 		return nil, fmt.Errorf("error listing volumes: %w", err)
 	}
 	log.V(1).Info("Listed all volumes from store", "count", len(cephImages))
-	return s.listAndConvert(ctx, log, cephImages)
+	return s.listAndConvert(log, cephImages)
 }
 
-func (s *Server) listAndConvert(ctx context.Context, log logr.Logger, cephImages []*api.Image) ([]*iri.Volume, error) {
+func (s *Server) listAndConvert(log logr.Logger, cephImages []*api.Image) ([]*iri.Volume, error) {
 	res := make([]*iri.Volume, 0, len(cephImages))
 	for _, cephImage := range cephImages {
 		if !api.IsObjectManagedBy(cephImage, api.VolumeManager) {
@@ -122,7 +122,7 @@ func (s *Server) ListVolumes(ctx context.Context, req *iri.ListVolumesRequest) (
 		log.V(1).Info("Listed volumes using label index", "count", len(cephImages))
 
 		// Convert results
-		volumes, err := s.listAndConvert(ctx, log, cephImages)
+		volumes, err := s.listAndConvert(log, cephImages)
 		if err != nil {
 			log.Error(err, "Error converting volumes found by label", "Selector", filter.LabelSelector)
 			return nil, fmt.Errorf("error converting listed volumes: %w", err)

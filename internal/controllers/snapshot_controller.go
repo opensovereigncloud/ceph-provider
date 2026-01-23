@@ -30,7 +30,6 @@ import (
 type SnapshotReconcilerOptions struct {
 	Pool                string
 	PopulatorBufferSize int64
-	WorkerSize          int
 	InactivityTimeout   time.Duration
 	WorkerSize          int
 }
@@ -90,7 +89,6 @@ func NewSnapshotReconciler(
 		events:              events,
 		pool:                opts.Pool,
 		populatorBufferSize: opts.PopulatorBufferSize,
-		workerSize:          opts.WorkerSize,
 		inactivityTimeout:   opts.InactivityTimeout,
 		workerSize:          opts.WorkerSize,
 	}, nil
