@@ -76,6 +76,9 @@ func flattenImage(log logr.Logger, conn *rados.Conn, pool string, imageName stri
 
 	img, err := openImage(ioCtx, imageName)
 	if err != nil {
+		if errors.Is(err, librbd.ErrNotFound) {
+			return nil
+		}
 		return err
 	}
 	defer closeImage(log, img)
