@@ -128,8 +128,8 @@ Sample `supported-volume-classes.json` file:
   {
     "name": "volumeclass-sample",
     "capabilities": {
-      "tps": 262144000,
-      "iops": 15000
+      "tps": 100,
+      "iops": 100
     }
   }
 ]
@@ -171,7 +171,7 @@ go run ./cmd/bucketprovider/main.go \
 ```bash
 irictl-volume --address=unix:./iri-volume.sock get volumeclass
 Name           TPS         IOPS
-volumeclass-sample   262144000   15000
+volumeclass-sample   100   100
 ```
 
 ### Creating a  `Volume`
