@@ -444,19 +444,19 @@ func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context,
 	}
 	log.V(2).Info("Configured pool", "pool", r.pool)
 
-	imageName := SnapshotIDToRBDID(snapshot.ID)
+	rbdImageID := SnapshotIDToRBDID(snapshot.ID)
 	roundedSize := round.OffBytes(snapshotSize)
-	if err = librbd.CreateImage(ioCtx, imageName, roundedSize, options); err != nil {
+	if err = librbd.CreateImage(ioCtx, rbdImageID, roundedSize, options); err != nil {
 		return fmt.Errorf("failed to create os rbd image: %w", err)
 	}
 	log.V(2).Info("Created rbd image", "bytes", roundedSize)
 
-	if err := r.prepareSnapshotContent(log, ioCtx, rc, digest, imageName); err != nil {
+	if err := r.prepareSnapshotContent(log, ioCtx, rc, digest, rbdImageID); err != nil {
 		return fmt.Errorf("failed to prepare snapshot content: %w", err)
 	}
 
-	log.V(2).Info("Create ironcore image snapshot", "ImageID", imageName)
-	if err := createSnapshot(log, ioCtx, ImageSnapshotVersion, imageName); err != nil {
+	log.V(2).Info("Create ironcore image snapshot", "ImageID", rbdImageID)
+	if err := createSnapshot(log, ioCtx, ImageSnapshotVersion, rbdImageID); err != nil {
 		return fmt.Errorf("failed to create ironcore image snapshot: %w", err)
 	}
 
@@ -509,8 +509,8 @@ func (r *SnapshotReconciler) openIroncoreImageSource(ctx context.Context, imageR
 	return content, uint64(rootFS.Descriptor().Size), img.Descriptor().Digest.String(), nil
 }
 
-func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, rc io.ReadCloser, expectedHash string, imageName string) error {
-	rbdImg, err := openImage(ioCtx, imageName)
+func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, rc io.ReadCloser, expectedHash string, rbdImageID string) error {
+	rbdImg, err := openImage(ioCtx, rbdImageID)
 	if err != nil {
 		return err
 	}
@@ -531,7 +531,7 @@ func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rado
 	log.V(1).Info("Content Caching Check",
 		"ContentValid", isContentValid,
 		"ExpectedHash", expectedHash,
-		"RBDImageID", imageName,
+		"RBDImageID", rbdImageID,
 	)
 	if !isContentValid {
 		log.V(1).Info("Volume content missing or mismatched. Starting network population.", ImageRBDContentHashKey, expectedHash)
