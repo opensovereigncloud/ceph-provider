@@ -262,31 +262,37 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		return nil
 	}
 
-	if err := r.deleteImageSnapshots(ctx, log, ioCtx, image); err != nil {
-		return fmt.Errorf("failed to delete image snapshots: %w", err)
-	}
-
+	imgExists := true
 	img, err := openImage(ioCtx, ImageIDToRBDID(image.ID))
 	if err != nil {
-		return err
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return err
+		}
+		imgExists = false
 	}
 	defer closeImage(log, img)
 
-	data, err := json.Marshal(image)
-	if err != nil {
-		return fmt.Errorf("failed to marshal image obj: %w", err)
+	if err := r.deleteImageSnapshots(ctx, log, ioCtx, img, image); err != nil {
+		return fmt.Errorf("failed to delete image snapshots: %w", err)
 	}
 
-	err = img.SetMetadata("ironcore-omap-backup", string(data))
-	if err != nil {
-		return err
-	}
+	if imgExists {
+		data, err := json.Marshal(image)
+		if err != nil {
+			return fmt.Errorf("failed to marshal image obj: %w", err)
+		}
 
-	// TODO make trash timeout configurable
-	if err := img.Trash(7 * 24 * time.Hour); err != nil && !errors.Is(err, librbd.ErrNotFound) {
-		return fmt.Errorf("failed to remove rbd image: %w", err)
+		err = img.SetMetadata("ironcore-omap-backup", string(data))
+		if err != nil {
+			return err
+		}
+
+		// TODO make trash timeout configurable
+		if err := img.Trash(7 * 24 * time.Hour); err != nil && !errors.Is(err, librbd.ErrNotFound) {
+			return fmt.Errorf("failed to remove rbd image: %w", err)
+		}
+		log.V(2).Info("Rbd image marked for deletion")
 	}
-	log.V(2).Info("Rbd image marked for deletion")
 
 	image.Finalizers = utils.DeleteSliceElement(image.Finalizers, ImageFinalizer)
 	if _, err := r.images.Update(ctx, image); store.IgnoreErrNotFound(err) != nil {
@@ -303,17 +309,7 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 // 1. Clone each snapshot into separate rbd image and create snapshot of that cloned rbd image with same name as snapshot.
 // 2. Flatten all child images(cloned images from step 1 and rbd images which are restored using this snapshot) of each snapshot.
 // 3. Remove all snapshots of rbd image and update each snapshot source in store to cloned rbd image id
-func (r *ImageReconciler) deleteImageSnapshots(ctx context.Context, log logr.Logger, ioCtx *rados.IOContext, image *providerapi.Image) error {
-	img, err := openImage(ioCtx, ImageIDToRBDID(image.ID))
-	if err != nil {
-		if !errors.Is(err, librbd.ErrNotFound) {
-			return err
-		}
-		log.V(2).Info("Rbd image not found, it was probably already deleted")
-		return nil
-	}
-	defer closeImage(log, img)
-
+func (r *ImageReconciler) deleteImageSnapshots(ctx context.Context, log logr.Logger, ioCtx *rados.IOContext, img *librbd.Image, image *providerapi.Image) error {
 	snaps, err := img.GetSnapshotNames()
 	if err != nil {
 		return fmt.Errorf("unable to list snapshots: %w", err)
