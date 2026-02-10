@@ -274,21 +274,13 @@ func (r *SnapshotReconciler) deleteSnapshot(ctx context.Context, log logr.Logger
 	return nil
 }
 
-func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, snapshot *providerapi.Snapshot, ioCtx *rados.IOContext, rbdImageID string) (bool, error) {
+func (r *SnapshotReconciler) isSnapshotInUse(ctx context.Context, ioCtx *rados.IOContext, rbdImageID string) (bool, error) {
 	log := logr.FromContextOrDiscard(ctx)
-	img, err := librbd.OpenImage(ioCtx, rbdImageID, librbd.NoSnapshot)
+	img, err := openImage(ioCtx, rbdImageID)
 	if err != nil {
-		if errors.Is(err, librbd.ErrNotFound) {
-			log.V(2).Info("RBD image not found, not in use.", "rbdImage", rbdImageID)
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to open RBD image %s to check usage: %w", rbdImageID, err)
+		return false, err
 	}
-	defer func() {
-		if closeErr := img.Close(); closeErr != nil {
-			log.Error(closeErr, "failed to close RBD image after usage check")
-		}
-	}()
+	defer closeImage(log, img)
 
 	_, childrenImgs, err := img.ListChildren()
 	if err != nil {
@@ -384,7 +376,7 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 		log.V(1).Info("Snapshot is past its inactivity timeout, checking if in use.",
 			"populatedTime", populatedTime, "inactivityTimeout", r.inactivityTimeout)
 
-		inUse, err := r.isSnapshotInUse(ctx, snapshot, ioCtx, rbdImageID)
+		inUse, err := r.isSnapshotInUse(ctx, ioCtx, rbdImageID)
 		if err != nil {
 			return fmt.Errorf("failed to determine if snapshot is in use for inactivity check: %w", err)
 		}
@@ -446,18 +438,22 @@ func (r *SnapshotReconciler) reconcileIroncoreImageSnapshot(ctx context.Context,
 
 	rbdImageID := SnapshotIDToRBDID(snapshot.ID)
 	roundedSize := round.OffBytes(snapshotSize)
-	if err = librbd.CreateImage(ioCtx, rbdImageID, roundedSize, options); err != nil {
-		return fmt.Errorf("failed to create os rbd image: %w", err)
-	}
-	log.V(2).Info("Created rbd image", "bytes", roundedSize)
 
-	if err := r.prepareSnapshotContent(log, ioCtx, rc, digest, rbdImageID); err != nil {
+	rbdImg, err := openImage(ioCtx, rbdImageID)
+	if errors.Is(err, librbd.ErrNotFound) {
+		if err = librbd.CreateImage(ioCtx, rbdImageID, roundedSize, options); err != nil {
+			return fmt.Errorf("failed to create os rbd image: %w", err)
+		}
+		log.V(2).Info("Created rbd image", "bytes", roundedSize)
+		rbdImg, err = openImage(ioCtx, rbdImageID)
+	}
+	if err != nil {
+		return err
+	}
+	defer closeImage(log, rbdImg)
+
+	if err := r.prepareSnapshotContent(log, ioCtx, rbdImg, rc, digest); err != nil {
 		return fmt.Errorf("failed to prepare snapshot content: %w", err)
-	}
-
-	log.V(2).Info("Create ironcore image snapshot", "ImageID", rbdImageID)
-	if err := createSnapshot(log, ioCtx, ImageSnapshotVersion, rbdImageID); err != nil {
-		return fmt.Errorf("failed to create ironcore image snapshot: %w", err)
 	}
 
 	snapshot.Status.Digest = digest
@@ -509,13 +505,7 @@ func (r *SnapshotReconciler) openIroncoreImageSource(ctx context.Context, imageR
 	return content, uint64(rootFS.Descriptor().Size), img.Descriptor().Digest.String(), nil
 }
 
-func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, rc io.ReadCloser, expectedHash string, rbdImageID string) error {
-	rbdImg, err := openImage(ioCtx, rbdImageID)
-	if err != nil {
-		return err
-	}
-	defer closeImage(log, rbdImg)
-
+func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rados.IOContext, rbdImg *librbd.Image, rc io.ReadCloser, expectedHash string) error {
 	currentSnap := rbdImg.GetSnapshot(ImageSnapshotVersion)
 	if isProtected, err := currentSnap.IsProtected(); err != nil {
 		if !errors.Is(err, librbd.ErrNotFound) {
@@ -527,6 +517,7 @@ func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rado
 	}
 
 	isContentValid := r.IsRBDImageContentValid(rbdImg, expectedHash)
+	rbdImageID := rbdImg.GetName()
 
 	log.V(1).Info("Content Caching Check",
 		"ContentValid", isContentValid,
@@ -548,6 +539,11 @@ func (r *SnapshotReconciler) prepareSnapshotContent(log logr.Logger, ioCtx *rado
 		log.V(1).Info("RBD image content successfully populated and content hash recorded")
 	} else {
 		log.V(1).Info("Volume content already present and valid (cache hit). Skipping network population.")
+	}
+
+	log.V(2).Info("Create ironcore image snapshot", "ImageID", rbdImageID)
+	if err := createSnapshot(log, ioCtx, ImageSnapshotVersion, rbdImageID); err != nil {
+		return fmt.Errorf("failed to create ironcore image snapshot: %w", err)
 	}
 
 	return nil

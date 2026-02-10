@@ -58,7 +58,7 @@ func openImage(ioCtx *rados.IOContext, imageName string) (*librbd.Image, error) 
 	img, err := librbd.OpenImage(ioCtx, imageName, librbd.NoSnapshot)
 	if err != nil {
 		if !errors.Is(err, librbd.ErrNotFound) {
-			return nil, fmt.Errorf("failed to open image: %w", err)
+			return nil, fmt.Errorf("failed to open image %s: %w", imageName, err)
 		}
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func flattenImage(log logr.Logger, conn *rados.Conn, pool string, imageName stri
 	defer closeImage(log, img)
 
 	if err := img.Flatten(); err != nil {
-		return fmt.Errorf("failed to flatten cloned image: %w", err)
+		return fmt.Errorf("failed to flatten cloned image %s: %w", imageName, err)
 	}
 	log.V(2).Info("Flattened cloned image", "clonedImageId", imageName)
 	return nil
@@ -99,12 +99,18 @@ func createSnapshot(log logr.Logger, ioCtx *rados.IOContext, snapshotName string
 
 	imgSnap, err := img.CreateSnapshot(snapshotName)
 	if err != nil {
-		return fmt.Errorf("unable to create snapshot: %w", err)
+		if errors.Is(err, librbd.ErrExist) {
+			log.V(2).Info("Snapshot creation failed with 'File exists', assuming it was created concurrently.", "snapshotName", snapshotName)
+			imgSnap = img.GetSnapshot(snapshotName)
+		} else {
+			return fmt.Errorf("unable to create snapshot %s: %w", snapshotName, err)
+		}
+
 	}
 	log.Info("Snapshot created")
 
 	if err := imgSnap.Protect(); err != nil {
-		return fmt.Errorf("unable to protect snapshot: %w", err)
+		return fmt.Errorf("unable to protect snapshot %s: %w", snapshotName, err)
 	}
 
 	if err := img.SetSnapshot(snapshotName); err != nil {
