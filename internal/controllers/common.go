@@ -6,6 +6,7 @@ package controllers
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/ceph/go-ceph/rados"
 	librbd "github.com/ceph/go-ceph/rbd"
@@ -166,4 +167,17 @@ func snapshotExists(log logr.Logger, ioCtx *rados.IOContext, imageName string, s
 		return false, fmt.Errorf("failed to get snapshot ID: %w", err)
 	}
 	return true, nil
+}
+
+func isRbdImageExisting(ioCtx *rados.IOContext, imageID string) (bool, error) {
+	images, err := librbd.GetImageNames(ioCtx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list images: %w", err)
+	}
+
+	if slices.Contains(images, imageID) {
+		return true, nil
+	}
+
+	return false, nil
 }

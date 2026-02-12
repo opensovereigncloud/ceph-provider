@@ -270,13 +270,15 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 		}
 		imgExists = false
 	}
-	defer closeImage(log, img)
-
-	if err := r.deleteImageSnapshots(ctx, log, ioCtx, img, image); err != nil {
-		return fmt.Errorf("failed to delete image snapshots: %w", err)
+	if img != nil {
+		defer closeImage(log, img)
 	}
 
 	if imgExists {
+		if err := r.deleteImageSnapshots(ctx, log, ioCtx, img, image); err != nil {
+			return fmt.Errorf("failed to delete image snapshots: %w", err)
+		}
+
 		data, err := json.Marshal(image)
 		if err != nil {
 			return fmt.Errorf("failed to marshal image obj: %w", err)
@@ -292,6 +294,8 @@ func (r *ImageReconciler) deleteImage(ctx context.Context, log logr.Logger, ioCt
 			return fmt.Errorf("failed to remove rbd image: %w", err)
 		}
 		log.V(2).Info("Rbd image marked for deletion")
+	} else {
+		log.V(2).Info("Rbd image not found, it was probably already deleted")
 	}
 
 	image.Finalizers = utils.DeleteSliceElement(image.Finalizers, ImageFinalizer)
@@ -807,6 +811,18 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 
 	if snapshot.Status.State != providerapi.SnapshotStateReady {
 		log.V(1).Info("snapshot is not populated", "state", snapshot.Status.State)
+		return false, nil
+	}
+
+	log.V(2).Info("Check if snapshot rbd image already exist")
+	imageExists, err := isRbdImageExisting(ioCtx, SnapshotIDToRBDID(snapshotRef))
+	if err != nil {
+		return false, fmt.Errorf("failed to check snapshot rbd image existence: %w", err)
+	}
+	log.V(1).Info("Checked snapshot rbd image existence", "imageExists", imageExists)
+
+	if !imageExists {
+		log.V(1).Info("snapshot rbd image does not exist", "snapshotID", snapshotRef)
 		return false, nil
 	}
 
