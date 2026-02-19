@@ -173,7 +173,9 @@ func removeTrashedChildImages(log logr.Logger, ioCtx *rados.IOContext, img *libr
 		for _, trashImg := range trashList {
 			if snapChildImgName == trashImg.Name {
 				log.V(2).Info("Removing trashed child image", "childImageName", snapChildImgName)
-				librbd.TrashRemove(ioCtx, trashImg.Id, true)
+				if err := librbd.TrashRemove(ioCtx, trashImg.Id, true); err != nil {
+					return fmt.Errorf("unable to remove trashed child image %s: %w", snapChildImgName, err)
+				}
 			}
 		}
 	}
