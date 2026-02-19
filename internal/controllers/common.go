@@ -78,6 +78,7 @@ func flattenImage(log logr.Logger, conn *rados.Conn, pool string, imageName stri
 	img, err := openImage(ioCtx, imageName)
 	if err != nil {
 		if errors.Is(err, librbd.ErrNotFound) {
+			log.V(2).Info("Cloned image not found, assuming it was trashed", "clonedImageId", imageName)
 			return nil
 		}
 		return err
@@ -148,6 +149,32 @@ func flattenChildImages(log logr.Logger, conn *rados.Conn, img *librbd.Image) er
 	for i, snapChildImgName := range childImgs {
 		if err := flattenImage(log, conn, pools[i], snapChildImgName); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func removeTrashedChildImages(log logr.Logger, ioCtx *rados.IOContext, img *librbd.Image) error {
+	_, childImgs, err := img.ListChildren()
+	if err != nil {
+		return fmt.Errorf("unable to list children: %w", err)
+	}
+	if len(childImgs) <= 0 {
+		return nil
+	}
+
+	trashList, err := librbd.GetTrashList(ioCtx)
+	if err != nil {
+		return fmt.Errorf("unable to get trash list: %w", err)
+	}
+	log.V(2).Info("Removing trashed children of image", "childCount", len(childImgs), "trashCount", len(trashList))
+
+	for _, snapChildImgName := range childImgs {
+		for _, trashImg := range trashList {
+			if snapChildImgName == trashImg.Name {
+				log.V(2).Info("Removing trashed child image", "childImageName", snapChildImgName)
+				librbd.TrashRemove(ioCtx, trashImg.Id, true)
+			}
 		}
 	}
 	return nil

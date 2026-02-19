@@ -343,6 +343,11 @@ func (r *ImageReconciler) deleteImageSnapshots(ctx context.Context, log logr.Log
 		}
 	}
 
+	// remove trashed child images of original image's snapshot to avoid flattening of those images which are already marked for deletion
+	if err := removeTrashedChildImages(log, ioCtx, img); err != nil {
+		return fmt.Errorf("failed to remove trashed child images: %w", err)
+	}
+
 	// flatten all child images of the original image's snapshots
 	if err := flattenChildImages(log, r.conn, img); err != nil {
 		return fmt.Errorf("failed to flatten snapshot child images: %w", err)
@@ -799,13 +804,21 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 		if !errors.Is(err, store.ErrNotFound) {
 			return false, fmt.Errorf("failed to get snapshot: %w", err)
 		}
-
 		log.V(1).Info("snapshot not found", "snapshotID", snapshotRef)
+
+		if image.Spec.Image != "" {
+			log.V(1).Info("snapshot not found, so remove snapshot reference to create image snapshot again", "snapshotID", snapshotRef, "imageRef", image.Spec.Image)
+			image.Spec.SnapshotRef = nil
+			if _, err := r.images.Update(ctx, image); err != nil {
+				return false, fmt.Errorf("failed to update image snapshot ref: %w", err)
+			}
+			r.Eventf(image.Metadata, corev1.EventTypeNormal, "CreateImageSnapshotRetry", "Snapshot not found, so remove snapshot reference to create image snapshot again")
+		}
 		return false, nil
 	}
 
 	if snapshot.Status.Size > image.Spec.Size {
-		r.Eventf(image.Metadata, corev1.EventTypeWarning, "ClonedImage", "image size has to be bigger as ironcore image %s: %d < %d", snapshot.Source.IronCoreImage, image.Spec.Size, snapshot.Status.Size)
+		r.Eventf(image.Metadata, corev1.EventTypeWarning, "ImageSizeIsSmallerThanSnapshotSize", "image size has to be bigger as ironcore image %s: %d < %d", snapshot.Source.IronCoreImage, image.Spec.Size, snapshot.Status.Size)
 		return false, fmt.Errorf("snapshot ironcore image %s: %w (%d < %d)", snapshot.Source.IronCoreImage, ErrImageSizeIsSmallerAsSnapshotSize, image.Spec.Size, snapshot.Status.Size)
 	}
 
@@ -814,16 +827,21 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 		return false, nil
 	}
 
-	log.V(2).Info("Check if snapshot rbd image already exist")
-	imageExists, err := isRbdImageExisting(ioCtx, SnapshotIDToRBDID(snapshotRef))
-	if err != nil {
-		return false, fmt.Errorf("failed to check snapshot rbd image existence: %w", err)
-	}
-	log.V(1).Info("Checked snapshot rbd image existence", "imageExists", imageExists)
+	if image.Spec.Image != "" {
+		log.V(2).Info("Check if snapshot rbd image already exist")
+		imageExists, err := isRbdImageExisting(ioCtx, SnapshotIDToRBDID(snapshotRef))
+		if err != nil {
+			return false, fmt.Errorf("failed to check snapshot rbd image existence: %w", err)
+		}
+		log.V(1).Info("Checked snapshot rbd image existence", "imageExists", imageExists)
 
-	if !imageExists {
-		log.V(1).Info("snapshot rbd image does not exist", "snapshotID", snapshotRef)
-		return false, nil
+		if !imageExists {
+			log.V(1).Info("snapshot rbd image does not exist, try to trigger rbd image creation by updating snapshot")
+			if _, err := r.snapshots.Update(ctx, snapshot); err != nil {
+				return false, fmt.Errorf("failed to update snapshot to trigger rbd image creation: %w", err)
+			}
+			return false, nil
+		}
 	}
 
 	parentName, snapName, err := getSnapshotSourceDetails(snapshot)

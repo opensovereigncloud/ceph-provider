@@ -347,15 +347,8 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 		return nil
 	}
 
-	log.V(2).Info("Check if snapshot image already exist")
-	imageExists, err := isRbdImageExisting(ioCtx, rbdImageID)
-	if err != nil {
-		return fmt.Errorf("failed to check snapshot image existence: %w", err)
-	}
-	log.V(1).Info("Checked snapshot rbd image existence", "imageExists", imageExists)
-
 	// Handle Populated Snapshots
-	if snapshot.Status.State == providerapi.SnapshotStateReady && imageExists {
+	if snapshot.Status.State == providerapi.SnapshotStateReady {
 		log.V(1).Info("Snapshot already populated")
 
 		now := metav1.Now()
@@ -404,10 +397,6 @@ func (r *SnapshotReconciler) reconcileSnapshot(ctx context.Context, log logr.Log
 	case snapshot.Source.IronCoreImage != "":
 		err = r.reconcileIroncoreImageSnapshot(ctx, log, ioCtx, snapshot)
 	case snapshot.Source.VolumeImageID != "":
-		if !imageExists {
-			log.V(1).Info("Source volume snapshot does not exist", "volumeImageID", snapshot.Source.VolumeImageID)
-			return nil
-		}
 		err = r.reconcileVolumeImageSnapshot(ctx, log, ioCtx, snapshot)
 	default:
 		return fmt.Errorf("snapshot source not found")
@@ -489,6 +478,8 @@ func (r *SnapshotReconciler) reconcileVolumeImageSnapshot(ctx context.Context, l
 	}
 
 	snapshot.Status.Size = img.Status.Size
+	nowAtPopulated := metav1.Now()
+	snapshot.Status.LastPopulatedTime = nowAtPopulated
 	return nil
 }
 
