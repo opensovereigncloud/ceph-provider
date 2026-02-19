@@ -837,7 +837,7 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 
 		if !imageExists {
 			log.V(1).Info("snapshot rbd image does not exist, try to trigger rbd image creation by updating snapshot")
-			if _, err := r.snapshots.Update(ctx, snapshot); err != nil {
+			if _, err := r.snapshots.Update(ctx, snapshot); store.IgnoreErrNotFound(err) != nil {
 				return false, fmt.Errorf("failed to update snapshot to trigger rbd image creation: %w", err)
 			}
 			return false, nil
