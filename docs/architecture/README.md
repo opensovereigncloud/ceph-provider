@@ -30,6 +30,8 @@ graph TD
     C -- defines --> VC[Supported VolumeClasses]
 ```
 
+The component diagram with description is available in the [components guide](./component-ceph-volume-provider.md)
+
 ## [ceph-bucket-provider](./ceph-bucket-provider-architecture.md)
 
 The `ceph-bucket-provider` utilizes `rook` CRD's to back the ironcore `Bucket` resource.
