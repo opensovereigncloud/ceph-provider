@@ -6,7 +6,6 @@ package controllers
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/ceph/go-ceph/rados"
 	librbd "github.com/ceph/go-ceph/rbd"
@@ -71,7 +70,7 @@ func flattenImage(log logr.Logger, conn *rados.Conn, pool string, imageName stri
 
 	ioCtx, err := conn.OpenIOContext(pool)
 	if err != nil {
-		return fmt.Errorf("unable to open io context: %w", err)
+		return fmt.Errorf("unable to open io context for pool %s: %w", pool, err)
 	}
 	defer ioCtx.Destroy()
 
@@ -182,31 +181,41 @@ func removeTrashedChildImages(log logr.Logger, ioCtx *rados.IOContext, img *libr
 	return nil
 }
 
-func snapshotExists(log logr.Logger, ioCtx *rados.IOContext, imageName string, snapshotName string) (bool, error) {
+func snapshotExistsAndProtected(log logr.Logger, ioCtx *rados.IOContext, imageName string, snapshotName string) (bool, bool, error) {
 	img, err := openImage(ioCtx, imageName)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	defer closeImage(log, img)
 
-	if _, err = img.GetSnapID(snapshotName); err != nil {
-		if errors.Is(err, librbd.ErrNotFound) {
-			return false, nil
+	snapshot := img.GetSnapshot(snapshotName)
+	if isProtected, err := snapshot.IsProtected(); err != nil {
+		if !errors.Is(err, librbd.ErrNotFound) {
+			return false, false, fmt.Errorf("failed to check if snapshot %s is protected: %w", snapshotName, err)
 		}
-		return false, fmt.Errorf("failed to get snapshot ID: %w", err)
+		return false, false, nil
+	} else if !isProtected {
+		log.V(2).Info("Snapshot exists but is not protected", "snapshotId", snapshotName)
+		return true, false, nil
 	}
-	return true, nil
+	log.V(2).Info("Snapshot already exists and is protected", "snapshotId", snapshotName)
+	return true, true, nil
 }
 
-func isRbdImageExisting(ioCtx *rados.IOContext, imageID string) (bool, error) {
-	images, err := librbd.GetImageNames(ioCtx)
+func protectSnapshot(log logr.Logger, ioCtx *rados.IOContext, imageName string, snapshotName string) error {
+	img, err := openImage(ioCtx, imageName)
 	if err != nil {
-		return false, fmt.Errorf("failed to list images: %w", err)
+		return err
 	}
+	defer closeImage(log, img)
 
-	if slices.Contains(images, imageID) {
-		return true, nil
+	snapshot := img.GetSnapshot(snapshotName)
+	if err := snapshot.Protect(); err != nil {
+		return fmt.Errorf("unable to protect existing snapshot %s: %w", snapshotName, err)
 	}
-
-	return false, nil
+	if err := img.SetSnapshot(snapshotName); err != nil {
+		return fmt.Errorf("failed to set snapshot %s for image %s: %w", snapshotName, imageName, err)
+	}
+	log.V(2).Info("Successfully protected snapshot", "snapshotId", snapshotName)
+	return nil
 }

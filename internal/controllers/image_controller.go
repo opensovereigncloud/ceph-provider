@@ -329,14 +329,19 @@ func (r *ImageReconciler) deleteImageSnapshots(ctx context.Context, log logr.Log
 			return fmt.Errorf("failed to create snapshot clone: %w", err)
 		}
 
-		isSnapshotExist, err := snapshotExists(log, ioCtx, ImageIDToRBDID(snapName), snapName)
-		if err != nil {
-			return fmt.Errorf("failed to check if snapshot exists: %w", err)
-		}
-		if isSnapshotExist {
+		if isSnapshotExist, isSnapshotProtected, err := snapshotExistsAndProtected(log, ioCtx, ImageIDToRBDID(snapName), snapName); err != nil {
+			return fmt.Errorf("failed to check if snapshot %s exists: %w", snapName, err)
+		} else if isSnapshotExist {
+			if !isSnapshotProtected {
+				// Snapshot exists but not protected - just protect it
+				if err := protectSnapshot(log, ioCtx, ImageIDToRBDID(snapName), snapName); err != nil {
+					return fmt.Errorf("failed to protect snapshot: %w", err)
+				}
+			}
 			log.V(2).Info("Snapshot of cloned image is already created")
 			continue
 		}
+
 		log.V(2).Info("Create snapshot of cloned image", "clonedImageId", snapName)
 		if err := createSnapshot(log, ioCtx, snapName, ImageIDToRBDID(snapName)); err != nil {
 			return fmt.Errorf("failed to create snapshot of cloned image: %w", err)
@@ -662,7 +667,7 @@ func (r *ImageReconciler) reconcileImage(ctx context.Context, log logr.Logger, i
 		switch {
 		case img.Spec.SnapshotRef != nil:
 			snapshotRef := img.Spec.SnapshotRef
-			log.V(2).Info("Creating image from snapshot", "snapshotRef", snapshotRef)
+			log.V(2).Info("Creating image from snapshot", "snapshotId", *snapshotRef)
 			ok, err := r.createImageFromSnapshot(ctx, log, ioCtx, img, *snapshotRef, options)
 			if err != nil {
 				return fmt.Errorf("failed to create image from snapshot: %w", err)
@@ -804,7 +809,7 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 		if !errors.Is(err, store.ErrNotFound) {
 			return false, fmt.Errorf("failed to get snapshot: %w", err)
 		}
-		log.V(1).Info("snapshot not found", "snapshotID", snapshotRef)
+		log.V(1).Info("snapshot not found", "snapshotId", snapshotRef)
 
 		if image.Spec.Image != "" {
 			log.V(1).Info("snapshot not found, so remove snapshot reference to create image snapshot again", "snapshotID", snapshotRef, "imageRef", image.Spec.Image)
@@ -827,27 +832,30 @@ func (r *ImageReconciler) createImageFromSnapshot(ctx context.Context, log logr.
 		return false, nil
 	}
 
-	if image.Spec.Image != "" {
-		log.V(2).Info("Check if snapshot rbd image already exist")
-		imageExists, err := isRbdImageExisting(ioCtx, SnapshotIDToRBDID(snapshotRef))
-		if err != nil {
-			return false, fmt.Errorf("failed to check snapshot rbd image existence: %w", err)
-		}
-		log.V(1).Info("Checked snapshot rbd image existence", "imageExists", imageExists)
-
-		if !imageExists {
-			log.V(1).Info("snapshot rbd image does not exist, try to trigger rbd image creation by updating snapshot")
-			if _, err := r.snapshots.Update(ctx, snapshot); store.IgnoreErrNotFound(err) != nil {
-				return false, fmt.Errorf("failed to update snapshot to trigger rbd image creation: %w", err)
-			}
-			return false, nil
-		}
-	}
-
 	parentName, snapName, err := getSnapshotSourceDetails(snapshot)
 	if err != nil {
 		return false, fmt.Errorf("failed to get snapshot source details: %w", err)
 	}
+
+	log.V(2).Info("Check if rbd snapshot exists", "snapshotId", snapName)
+	isSnapshotExist, isSnapshotProtected, err := snapshotExistsAndProtected(log, ioCtx, parentName, snapName)
+	if err != nil && !errors.Is(err, librbd.ErrNotFound) {
+		return false, fmt.Errorf("failed to check volume image snapshot existence: %w", err)
+	}
+	if isSnapshotExist && !isSnapshotProtected {
+		if err := protectSnapshot(log, ioCtx, parentName, snapName); err != nil {
+			return false, fmt.Errorf("failed to protect snapshot %s: %w", snapName, err)
+		}
+	}
+	if !isSnapshotExist {
+		log.V(1).Info("Rbd snapshot does not exist. Mark snapshot as failed", "snapshotName", snapName)
+		snapshot.Status.State = providerapi.SnapshotStateFailed
+		if _, err := r.snapshots.Update(ctx, snapshot); store.IgnoreErrNotFound(err) != nil {
+			return false, fmt.Errorf("failed to update snapshot state: %w", err)
+		}
+		return false, nil
+	}
+	log.V(2).Info("Checked rbd snapshot existence", "snapshotId", snapName, "isSnapshotExist", isSnapshotExist)
 
 	ioCtx2, err := r.conn.OpenIOContext(r.pool)
 	if err != nil {
