@@ -4,8 +4,8 @@
 package omap
 
 const (
-	NameVolumes  = "ironcore.csi.volumes"
-	NameOsImages = "ironcore.csi.os-images"
+	NameVolumes   = "ironcore.csi.volumes"
+	NameSnapshots = "ironcore.csi.snapshots"
 	// LabelsAnnotationKey is the annotation key used to store volume labels in Ceph OMAP
 	LabelsAnnotationKey = "labels.ironcore.ceph/volume"
 

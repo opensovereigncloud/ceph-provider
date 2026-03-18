@@ -24,35 +24,16 @@ func (s *Server) createImageFromVolume(ctx context.Context, log logr.Logger, vol
 		return nil, fmt.Errorf("got an empty volume")
 	}
 
-	log.V(2).Info("Getting volume class")
-	class, found := s.volumeClasses.Get(volume.Spec.Class)
-	if !found {
-		return nil, fmt.Errorf("volume class '%s' not supported", volume.Spec.Class)
+	var err error
+	var imageSize uint64
+	var encryptionSpec *api.EncryptionSpec
+	log.V(2).Info("Getting image size and encryption from IRI volume")
+	if volume.Spec.Resources != nil {
+		if imageSize, err = utils.Int64ToUint64(volume.Spec.Resources.StorageBytes); err != nil {
+			return nil, fmt.Errorf("failed to get image size: %w", err)
+		}
 	}
 
-	calculatedLimits := limits.Calculate(class.Capabilities.Iops, class.Capabilities.Tps, s.burstFactor, s.burstDurationInSeconds)
-
-	imageSize, err := utils.Int64ToUint64(volume.Spec.Resources.StorageBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	image := &api.Image{
-		Metadata: apiutils.Metadata{
-			ID:     s.idGen.Generate(),
-			Labels: volume.Metadata.Labels,
-		},
-		Spec: api.ImageSpec{
-			Size:   imageSize,
-			Limits: calculatedLimits,
-			Image:  volume.Spec.Image,
-			Encryption: api.EncryptionSpec{
-				Type: api.EncryptionTypeUnencrypted,
-			},
-		},
-	}
-
-	log.V(2).Info("Checking volume encryption")
 	if encryption := volume.Spec.Encryption; encryption != nil {
 		if encryption.SecretData == nil {
 			return nil, fmt.Errorf("encryption enabled but SecretData missing")
@@ -66,9 +47,84 @@ func (s *Server) createImageFromVolume(ctx context.Context, log logr.Logger, vol
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt passphrase: %w", err)
 		}
+		encryptionSpec = &api.EncryptionSpec{
+			Type:                api.EncryptionTypeEncrypted,
+			EncryptedPassphrase: encryptedPassphrase,
+		}
+	}
 
-		image.Spec.Encryption.Type = api.EncryptionTypeEncrypted
-		image.Spec.Encryption.EncryptedPassphrase = encryptedPassphrase
+	log.V(2).Info("Getting volume data source")
+	volImage := volume.Spec.Image // TODO: Remove this once volume.Spec.Image is deprecated
+
+	var snapshotID *string
+	if dataSource := volume.Spec.VolumeDataSource; dataSource != nil {
+		switch {
+		case dataSource.SnapshotDataSource != nil:
+			volImage = "" // TODO: Remove this once volume.Spec.Image is deprecated
+
+			snapshotID = &dataSource.SnapshotDataSource.SnapshotId
+			log.V(2).Info("Getting snapshot data source", "snapshotID", snapshotID)
+			snapshot, err := s.snapshotStore.Get(ctx, *snapshotID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get volume snapshot from store: %w", err)
+			}
+
+			if snapshot.Source.VolumeImageID == "" {
+				return nil, fmt.Errorf("snapshot doesn't have source volume ID")
+			}
+
+			var snapshotSourceVolume *api.Image
+			if snapshotSourceVolume, err = s.imageStore.Get(ctx, snapshot.Source.VolumeImageID); err != nil {
+				return nil, fmt.Errorf("failed to get snapshot source volume from store: %w", err)
+			}
+
+			snapshotSize := snapshotSourceVolume.Spec.Size
+			// Validate and determine final size
+			if imageSize == 0 {
+				// No size specified by user, use snapshot size
+				log.V(2).Info("Getting image size from snapshot source volume", "snapshotSourceVolumeID", snapshotSourceVolume.ID)
+				imageSize = snapshotSize
+			} else if imageSize < snapshotSize {
+				// User specified size is too small
+				return nil, fmt.Errorf("requested size (%d bytes) must not be smaller than snapshot restore size (%d bytes)", imageSize, snapshotSize)
+			}
+
+		case dataSource.ImageDataSource != nil:
+			volImage = dataSource.ImageDataSource.Image
+			log.V(2).Info("Getting image data source", "imageID", volImage)
+			if volImage == "" {
+				return nil, fmt.Errorf("must specify image url in image data source")
+			}
+			if imageSize == 0 {
+				return nil, fmt.Errorf("must specify size when creating volume from image data source")
+			}
+
+		default:
+			return nil, fmt.Errorf("unsupported or incomplete volume data source type")
+		}
+	}
+
+	log.V(2).Info("Getting volume class")
+	class, found := s.volumeClasses.Get(volume.Spec.Class)
+	if !found {
+		return nil, fmt.Errorf("volume class '%s' not supported", volume.Spec.Class)
+	}
+
+	log.V(2).Info("Getting volume limits")
+	calculatedLimits := limits.Calculate(class.Capabilities.Iops, class.Capabilities.Tps, s.burstFactor, s.burstDurationInSeconds)
+
+	image := &api.Image{
+		Metadata: apiutils.Metadata{
+			ID:     s.idGen.Generate(),
+			Labels: volume.Metadata.Labels,
+		},
+		Spec: api.ImageSpec{
+			Size:        imageSize,
+			Limits:      calculatedLimits,
+			Image:       volImage,
+			SnapshotRef: snapshotID,
+			Encryption:  encryptionSpec,
+		},
 	}
 
 	log.V(2).Info("Setting volume metadata to image")

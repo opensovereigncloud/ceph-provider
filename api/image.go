@@ -28,12 +28,12 @@ const (
 )
 
 type ImageSpec struct {
-	Size        uint64         `json:"size"`
-	WWN         string         `json:"wwn"`
-	Limits      Limits         `json:"limits"`
-	Image       string         `json:"image"`
-	SnapshotRef *string        `json:"snapshotRef"`
-	Encryption  EncryptionSpec `json:"encryption"`
+	Size        uint64          `json:"size"`
+	WWN         string          `json:"wwn"`
+	Limits      Limits          `json:"limits"`
+	Image       string          `json:"image"`
+	SnapshotRef *string         `json:"snapshotRef"`
+	Encryption  *EncryptionSpec `json:"encryption"`
 }
 
 type EncryptionType string
@@ -66,7 +66,7 @@ type ImageAccess struct {
 type Limits map[LimitType]int64
 
 const (
-	IOPSlLimit                  LimitType = "rbd_qos_iops_limit"
+	IOPSLimit                   LimitType = "rbd_qos_iops_limit"
 	IOPSBurstLimit              LimitType = "rbd_qos_iops_burst"
 	IOPSBurstDurationLimit      LimitType = "rbd_qos_iops_burst_seconds"
 	ReadIOPSLimit               LimitType = "rbd_qos_read_iops_limit"

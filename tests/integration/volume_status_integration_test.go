@@ -79,7 +79,7 @@ var _ = Describe("Volume Status", func() {
 				HaveKeyWithValue(api.BPSLimit, int64(100)),
 				HaveKeyWithValue(api.ReadIOPSLimit, int64(100)),
 				HaveKeyWithValue(api.WriteIOPSLimit, int64(100)),
-				HaveKeyWithValue(api.IOPSlLimit, int64(100)),
+				HaveKeyWithValue(api.IOPSLimit, int64(100)),
 			)),
 		))
 

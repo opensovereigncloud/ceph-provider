@@ -70,12 +70,10 @@ var _ = Describe("Expand Volume", func() {
 				HaveKeyWithValue(api.ReadIOPSLimit, int64(100)),
 				HaveKeyWithValue(api.WriteBPSLimit, int64(100)),
 				HaveKeyWithValue(api.BPSBurstDurationLimit, int64(15)),
-				HaveKeyWithValue(api.IOPSlLimit, int64(100)),
+				HaveKeyWithValue(api.IOPSLimit, int64(100)),
 			)),
 			HaveField("Spec.SnapshotRef", BeNil()),
-			HaveField("Spec.Encryption", SatisfyAll(
-				HaveField("Type", api.EncryptionTypeUnencrypted),
-			)),
+			HaveField("Spec.Encryption", BeNil()),
 			HaveField("Status.State", Equal(api.ImageStateAvailable)),
 			HaveField("Status.Access", SatisfyAll(
 				HaveField("Monitors", cephMonitors),
@@ -142,12 +140,10 @@ var _ = Describe("Expand Volume", func() {
 				HaveKeyWithValue(api.ReadIOPSLimit, int64(100)),
 				HaveKeyWithValue(api.WriteBPSLimit, int64(100)),
 				HaveKeyWithValue(api.BPSBurstDurationLimit, int64(15)),
-				HaveKeyWithValue(api.IOPSlLimit, int64(100)),
+				HaveKeyWithValue(api.IOPSLimit, int64(100)),
 			)),
 			HaveField("Spec.SnapshotRef", BeNil()),
-			HaveField("Spec.Encryption", SatisfyAll(
-				HaveField("Type", api.EncryptionTypeUnencrypted),
-			)),
+			HaveField("Spec.Encryption", BeNil()),
 			HaveField("Status.State", Equal(api.ImageStateAvailable)),
 			HaveField("Status.Access", SatisfyAll(
 				HaveField("Monitors", cephMonitors),
