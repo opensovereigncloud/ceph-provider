@@ -30,7 +30,7 @@ graph TD
     C -- defines --> VC[Supported VolumeClasses]
 ```
 
-The component diagram with description is available in the [components guide](./component-ceph-volume-provider.md)
+The component diagram with description is available in the [components guide](./component-ceph-volume-provider.md).
 
 ## [ceph-bucket-provider](./ceph-bucket-provider-architecture.md)
 
@@ -54,3 +54,5 @@ graph TD
     C -- creates --> OBC[ObjectBucketClaim]
     R -- reconciles --> OBC
 ```
+
+The component diagram with description is available in the [components guide](./component-ceph-bucket-provider.md).
