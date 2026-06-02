@@ -1,0 +1,323 @@
+# PyMarkdown configuration translated from .mdlrc (markdownlint).
+#
+# All rule settings live under `plugins.<id>.<key>`. `enabled` is the
+# universal on/off toggle. `default: true` semantics from markdownlint
+# are PyMarkdown's default behavior — every shipped rule is enabled
+# unless explicitly disabled, so no top-level equivalent is required.
+#
+# NOTE: comments prefixed with "NOTE:" flag rules from the source
+# .mdlrc that have no PyMarkdown equivalent and have been commented
+# out. PyMarkdown ships rules MD001–MD048 (skipping a few deprecated
+# ones); MD049, MD050, MD051, MD052, MD053, MD054, MD055, MD056,
+# MD058, and MD059 do not exist in PyMarkdown.
+
+plugins:
+
+  # MD001/heading-increment - Heading levels should only increment by one level at a time
+  md001:
+    enabled: true
+
+  # NOTE: MD002 is deprecated in PyMarkdown in favor of MD041. The original
+  # markdownlint MD002 with `level: 1` is functionally equivalent to MD041
+  # with `level: 1`, which is configured below.
+  # md002:
+  #   enabled: true
+  #   level: 1
+
+  # MD003/heading-style - Heading style
+  md003:
+    enabled: true
+    style: "atx"
+
+  # MD004/ul-style - Unordered list style
+  md004:
+    enabled: true
+    style: "dash"
+
+  # MD005/list-indent - Inconsistent indentation for list items at the same level
+  md005:
+    enabled: true
+
+  # NOTE: MD006 is deprecated in PyMarkdown in favor of MD007. Leaving
+  # disabled so behavior matches the source config (which had it on by
+  # default but its intent is now covered by MD007 with start_indented=false).
+  # md006:
+  #   enabled: true
+
+  # MD007/ul-indent - Unordered list indentation
+  md007:
+    enabled: true
+    indent: 4
+    start_indented: false
+    # NOTE: markdownlint's `start_indent` (per-level override when
+    # start_indented is set) does not exist in PyMarkdown's MD007.
+    # Since start_indented is false here, this is moot.
+
+  # MD009/no-trailing-spaces - Trailing spaces
+  md009:
+    enabled: true
+    br_spaces: 2
+    list_item_empty_lines: false
+    strict: false
+
+  # MD010/no-hard-tabs - Hard tabs
+  md010:
+    enabled: true
+    code_blocks: true
+    # NOTE: markdownlint's `spaces_per_tab` is not configurable in
+    # PyMarkdown's MD010 — it reports the violation but does not
+    # parameterize the assumed tab width.
+
+  # MD011/no-reversed-links - Reversed link syntax
+  md011:
+    enabled: true
+
+  # MD012/no-multiple-blanks - Multiple consecutive blank lines
+  md012:
+    enabled: true
+    maximum: 1
+
+  # MD013/line-length - Line length (disabled in source config)
+  md013:
+    enabled: false
+    # line_length: 80
+    # heading_line_length: 80
+    # code_block_line_length: 80
+    # code_blocks: true
+    # tables: true
+    # headings: true
+    # NOTE: markdownlint's `headers` (legacy alias of `headings`),
+    # `strict`, and `stern` keys are not supported by PyMarkdown's MD013.
+
+  # MD014/commands-show-output - Dollar signs used before commands without showing output
+  md014:
+    enabled: true
+
+  # MD018/no-missing-space-atx - No space after hash on atx style heading
+  md018:
+    enabled: true
+
+  # MD019/no-multiple-space-atx - Multiple spaces after hash on atx style heading
+  md019:
+    enabled: true
+
+  # MD020/no-missing-space-closed-atx - No space inside hashes on closed atx style heading
+  md020:
+    enabled: true
+
+  # MD021/no-multiple-space-closed-atx - Multiple spaces inside hashes on closed atx style heading
+  md021:
+    enabled: true
+
+  # MD022/blanks-around-headings - Headings should be surrounded by blank lines
+  md022:
+    enabled: true
+    lines_above: 1
+    lines_below: 1
+
+  # MD023/heading-start-left - Headings must start at the beginning of the line
+  md023:
+    enabled: true
+
+  # MD024/no-duplicate-heading - Multiple headings with the same content
+  md024:
+    enabled: true
+    # siblings_only: false
+    # NOTE: PyMarkdown's MD024 supports `siblings_only`; markdownlint's
+    # `allow_different_nesting` is the legacy name for the same idea
+    # and is not separately supported.
+
+  # MD025/single-title - Multiple top-level headings in the same document
+  md025:
+    enabled: true
+    level: 1
+    front_matter_title: ""
+
+  # MD026/no-trailing-punctuation - Trailing punctuation in heading
+  md026:
+    enabled: true
+    punctuation: ".,;:!。，；：！"
+
+  # MD027/no-multiple-space-blockquote - Multiple spaces after blockquote symbol
+  md027:
+    enabled: true
+
+  # MD028/no-blanks-blockquote - Blank line inside blockquote
+  md028:
+    enabled: true
+
+  # MD029/ol-prefix - Ordered list item prefix
+  md029:
+    enabled: true
+    style: "one"
+
+  # MD030/list-marker-space - Spaces after list markers
+  md030:
+    enabled: true
+    ul_single: 1
+    ol_single: 1
+    ul_multi: 1
+    ol_multi: 1
+
+  # MD031/blanks-around-fences - Fenced code blocks should be surrounded by blank lines
+  md031:
+    enabled: true
+    list_items: true
+
+  # MD032/blanks-around-lists - Lists should be surrounded by blank lines
+  md032:
+    enabled: true
+
+  # MD033/no-inline-html - Inline HTML
+  md033:
+    enabled: true
+    allowed_elements: []
+
+  # MD034/no-bare-urls - Bare URL used
+  md034:
+    enabled: true
+
+  # MD035/hr-style - Horizontal rule style
+  md035:
+    enabled: true
+    style: "consistent"
+
+  # MD036/no-emphasis-as-heading - Emphasis used instead of a heading
+  md036:
+    enabled: true
+    punctuation: ".,;:!?。，；：！？"
+
+  # MD037/no-space-in-emphasis - Spaces inside emphasis markers
+  md037:
+    enabled: true
+
+  # MD038/no-space-in-code - Spaces inside code span elements
+  md038:
+    enabled: true
+
+  # MD039/no-space-in-links - Spaces inside link text
+  md039:
+    enabled: true
+
+  # MD040/fenced-code-language - Fenced code blocks should have a language specified
+  md040:
+    enabled: true
+
+  # MD041/first-line-heading - First line in a file should be a top-level heading
+  md041:
+    enabled: true
+    # NOTE: PyMarkdown's MD041 takes a literal front-matter key name
+    # (default "title"), not a regex. The markdownlint regex
+    # "^\\s*title\\s*[:=]" matches the same key, so "title" preserves
+    # the intent.
+    front_matter_title: "title"
+    # NOTE: markdownlint's `level` parameter (top-level heading level)
+    # is not exposed in PyMarkdown's MD041 — it always expects level 1.
+
+  # MD042/no-empty-links - No empty links
+  md042:
+    enabled: true
+
+  # MD043/required-headings - Required heading structure (disabled in source config)
+  md043:
+    enabled: false
+    # headings: []
+
+  # MD044/proper-names - Proper names should have the correct capitalization
+  md044:
+    enabled: true
+    names: []
+    code_blocks: true
+
+  # MD045/no-alt-text - Images should have alternate text
+  md045:
+    enabled: true
+
+  # MD046/code-block-style - Code block style
+  md046:
+    enabled: true
+    style: "fenced"
+
+  # MD047/single-trailing-newline - Files should end with a single newline character
+  md047:
+    enabled: true
+
+  # MD048/code-fence-style - Code fence style
+  md048:
+    enabled: true
+    style: "backtick"
+
+  # NOTE: MD049/emphasis-style does not exist in PyMarkdown. There is
+  # no built-in equivalent for enforcing asterisk vs underscore for
+  # emphasis. Consider a Pragma-based suppression workflow or a
+  # custom rule plugin if this is critical.
+  # md049:
+  #   enabled: true
+  #   style: "asterisk"
+
+  # NOTE: MD050/strong-style does not exist in PyMarkdown. Same
+  # situation as MD049 — no built-in for asterisk vs underscore on
+  # strong (bold) markers.
+  # md050:
+  #   enabled: true
+  #   style: "asterisk"
+
+  # NOTE: MD051/link-fragments does not exist in PyMarkdown. Link
+  # fragment validity (#anchors resolving to actual headings) is
+  # not currently checked.
+  # md051:
+  #   enabled: true
+
+  # NOTE: MD052/reference-links-images does not exist in PyMarkdown.
+  # Undefined reference labels are not flagged.
+  # md052:
+  #   enabled: true
+
+  # NOTE: MD053/link-image-reference-definitions does not exist in
+  # PyMarkdown. Unused reference definitions are not flagged.
+  # md053:
+  #   enabled: true
+
+  # NOTE: MD054/link-image-style does not exist in PyMarkdown. Link
+  # and image style preferences (autolink, collapsed, full, inline,
+  # shortcut, url_inline) cannot be enforced.
+  # md054:
+  #   enabled: true
+  #   autolink: true
+  #   collapsed: false
+  #   full: true
+  #   inline: true
+  #   shortcut: false
+  #   url_inline: true
+
+  # NOTE: MD055/table-pipe-style does not exist in PyMarkdown. Table
+  # pipe style cannot be enforced. Note that PyMarkdown's table
+  # support also requires the `markdown-tables` extension to be
+  # enabled before any table-aware rules would apply.
+  # md055:
+  #   enabled: true
+  #   style: "leading_and_trailing"
+
+  # NOTE: MD056/table-column-count does not exist in PyMarkdown.
+  # Mismatched column counts in tables are not flagged.
+  # md056:
+  #   enabled: true
+
+  # NOTE: MD058/blanks-around-tables does not exist in PyMarkdown.
+  # Blank-line enforcement around tables is not available.
+  # md058:
+  #   enabled: true
+
+  # NOTE: MD059/descriptive-link-text does not exist in PyMarkdown.
+  # Generic link text ("click here", "here", "link") is not flagged.
+  # md059:
+  #   enabled: true
+
+# Optional: enable extensions that some of the above rules depend on
+# or that match common markdownlint behavior. PyMarkdown disables
+# front-matter parsing by default; enabling it makes MD041's
+# `front_matter_title` setting actually take effect on documents
+# that begin with YAML front matter.
+extensions:
+  front-matter:
+    enabled: true

@@ -5,8 +5,8 @@ stages:
   - sync-with-upstream
 
 variables:
-  TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common/pipeline-community"
-  CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-gitlab-runner-linter:alpine-latest-0.9"
+  TELEKOM_REGISTRY: "mtr.devops.telekom.de/osc/common"
+  CI_LINTER_IMG: "${TELEKOM_REGISTRY}/osc-builder:v7.1.5"
   GO_BUILD_IMG: "mtr.devops.telekom.de/osc/onmetal/container-images/go:go-1.25.0-alpine-3.22.1"
   TOOLS_IMAGE: mtr.devops.telekom.de/osc/onmetal/container-images/tools:v1.0.0-alpine3.22
 
@@ -15,6 +15,9 @@ default:
     - docker
     - pes
     - osc
+  image:
+    name: "${CI_LINTER_IMG}"
+    entrypoint: ["/bin/ash", "-c"]
   retry:
     max: 2
     when:
@@ -40,10 +43,8 @@ workflow:
 # Lint Stages for various file types
 yaml-lint:
   stage: lint
-  needs: []
   variables:
     YAML_LINT_CONFIG: './.linter-config/yamllint.yaml'
-  image: "${CI_LINTER_IMG}"
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
@@ -60,10 +61,8 @@ yaml-lint:
 
 file-lint:
   stage: lint
-  needs: []
   variables:
     FILES_LINT_CONFIG: './.linter-config/file-lint.conf'
-  image: "${CI_LINTER_IMG}"
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
@@ -85,38 +84,28 @@ file-lint:
 
 markdown-lint:
   stage: lint
-  needs: []
   variables:
-    MARKDOWN_LINT_CONFIG: './.linter-config/mdlrc'
+    MARKDOWN_LINT_CONFIG: './.linter-config/pymarkdown.yaml'
     MARKDOWN_LINT_IGNORE_CONFIG: "./.linter-config/.markdownlintignore"
-  image: "${CI_LINTER_IMG}"
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
           compare_to: 'osc/main'
           paths:
             - "**/*.md"
-            - ".linter-config/mdlrc"
+            - ".linter-config/pymarkdown.yaml"
   script:
     - |
-      # copy markdown ignore config if exists
-      if [[ -f "${MARKDOWN_LINT_IGNORE_CONFIG}" ]]; then
-        cp "${MARKDOWN_LINT_IGNORE_CONFIG}" .
-      fi
+      # 1. Prepare Configuration
       if [[ -f "${MARKDOWN_LINT_CONFIG}" ]]; then
-        cfg="--config ${MARKDOWN_LINT_CONFIG}"
+        # PyMarkdown uses -c or --config
+        cfg="-c ${MARKDOWN_LINT_CONFIG}"
       fi
-      { find -iname '*.md' -type f \
-        | xargs markdownlint ${cfg}; } && echo "Linting was successful."
+      echo "Starting PyMarkdown Scan..."
+      pymarkdown ${cfg} scan . && echo "Linting was successful."
 
 shell-lint:
   stage: lint
-  needs: []
-  image:
-    name: "mtr.devops.telekom.de/osc/onmetal/container-images/shellcheck:0.10.0-alpine-3.21.2"
-    entrypoint:
-      - /bin/ash
-      - -c
   rules:
     - if: $CI_PIPELINE_SOURCE != "schedule"
       changes:
@@ -166,10 +155,6 @@ shell-lint:
 go-lint:
   extends: .run-on-go-change
   stage: lint
-  needs: []
-  image:
-    name: "${GO_BUILD_IMG}"
-    entrypoint: ["/bin/ash", "-c"]
   script:
     - make lint
 
