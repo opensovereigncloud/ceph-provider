@@ -663,14 +663,9 @@ func (s *Store[E]) List(ctx context.Context) ([]E, error) {
 
 	// Create a snapshot (deep copy) while holding the lock
 	for id, data := range s.cache {
-		// Deep copy the []byte data. This prevents data corruption
-		// if an external source mutates the underlying array after the lock is released.
-		dataCopy := make([]byte, len(data))
-		copy(dataCopy, data)
-
 		itemsList = append(itemsList, CacheItem{
 			ID:      id,
-			RawData: dataCopy,
+			RawData: data,
 		})
 	}
 
@@ -706,7 +701,6 @@ func (s *Store[E]) ListByLabels(ctx context.Context, labelSelector map[string]st
 
 	// pre-allocate the slice to avoid extra memory allocations
 	labelSelect := make([]sizedLabel, 0, len(labelSelector))
-	var intersection sets.Set[string]
 
 	// 1 .Gather label set sizes and check for immediate non-matches.
 	for key, value := range labelSelector {
@@ -729,21 +723,19 @@ func (s *Store[E]) ListByLabels(ctx context.Context, labelSelector map[string]st
 		})
 	}
 
-	var isFirstLabel = true
-
 	// 3. Iterate over the sorted slice (labelsForSort) to compute the intersection.
-	for _, info := range labelSelect {
-		ids := info.ids
-		if isFirstLabel {
-			// Use the smallest set to initialize the intersection (copy to avoid modifying the index set).
-			intersection = ids.Clone()
-			s.log.V(1).Info("Initialized intersection set with label", "initial_count", intersection.Len())
-			isFirstLabel = false
-		} else {
-			// Intersect the current result with the next smallest set.
-			prevCount := intersection.Len()
-			intersection = intersection.Intersection(ids)
-			s.log.V(1).Info("Computed intersection", "previous_count", prevCount, "new_count", intersection.Len())
+	// Clone smallest set once.
+	intersection := labelSelect[0].ids.Clone()
+	s.log.V(1).Info("Initialized intersection set with smallest label matching set", "initial_count", intersection.Len())
+
+	// Iterate over the remaining sorted slice to compute intersection in-place.
+	// labelSelect[1:] skips the first item seamlessly with no extra allocations.
+	for _, item := range labelSelect[1:] {
+		// Mutate no extra allocations.
+		for id := range intersection {
+			if !item.ids.Has(id) {
+				intersection.Delete(id)
+			}
 		}
 
 		if intersection.Len() == 0 {

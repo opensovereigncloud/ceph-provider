@@ -154,6 +154,9 @@ shell-lint:
 
 go-lint:
   extends: .run-on-go-change
+  image:
+    name: "${GO_BUILD_IMG}"
+    entrypoint: ["/bin/ash", "-c"]
   stage: lint
   script:
     - make lint
