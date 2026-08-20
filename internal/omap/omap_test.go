@@ -1,3 +1,17 @@
+// Copyright 2026 IronCore authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package omap_test
 
 import (
@@ -62,6 +76,7 @@ var _ = Describe("Omap Store", func() {
 		poolName   string
 		omapName   string
 		testLogger logr.Logger
+		cancel     context.CancelFunc
 	)
 
 	BeforeEach(func() {
@@ -83,10 +98,13 @@ var _ = Describe("Omap Store", func() {
 		// Pass the *mock* connection directly, as New expects the interface
 		omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
 		Expect(err).NotTo(HaveOccurred())
-		ctx = context.Background()
+		ctx, cancel = context.WithCancel(context.Background())
+		err = omapStore.InitializeCache()
+		Expect(err).NotTo(HaveOccurred(), "failed to initialize omapStore cache")
 	})
 
 	AfterEach(func() {
+		cancel()
 		mockConn.Clear()
 	})
 
@@ -138,21 +156,21 @@ var _ = Describe("Omap Store", func() {
 			// Error occurs during cache initialization check or OMAP check
 			Expect(err.Error()).To(Or(
 				ContainSubstring("failed to initialize cache"),
-				ContainSubstring("unable to get io context"), // This covers the OMAP check part
+				ContainSubstring("unable to get io context"),
 			))
 			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
 		})
 
 		It("should return an error if Get fails before create (not ErrNotFound or AlreadyExists)", func() {
 			simulatedError := errors.New("internal get error")
-			// Set failure for GetAllOmapValues, which will be called by initializeCach
 			mockConn.SetIOContextFailOp("GetAllOmapValues", simulatedError)
+
 			objToCreate := newMockObject("obj-fail-get", "spec")
-			_, err := omapStore.Create(ctx, objToCreate) // Create triggers initializeCache first
+			_, err := omapStore.Create(ctx, objToCreate)
 			Expect(err).To(HaveOccurred())
-			// Assert the error comes from cache initialization now
-			Expect(err.Error()).To(ContainSubstring("failed to initialize cache for Create"))
+			Expect(err.Error()).To(ContainSubstring("failed to fetch omap value"))
 			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
+
 			Expect(errors.Is(err, store.ErrAlreadyExists)).To(BeFalse())
 			Expect(errors.Is(err, store.ErrNotFound)).To(BeFalse())
 		})
@@ -182,8 +200,12 @@ var _ = Describe("Omap Store", func() {
 			}
 			storeWithStrategy, err := omap.New[*mockObject](mockConn, poolName, testLogger, opts)
 			Expect(err).NotTo(HaveOccurred())
+			err = storeWithStrategy.InitializeCache()
+			Expect(err).NotTo(HaveOccurred())
+
 			objToCreate := newMockObject("objstrat", "spec")
 			createdObj, err := storeWithStrategy.Create(ctx, objToCreate)
+
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strategyApplied).To(BeTrue())
 			Expect(createdObj.GetAnnotations()).To(HaveKeyWithValue("strategy", "applied"))
@@ -204,9 +226,18 @@ var _ = Describe("Omap Store", func() {
 			mockConn.Populate(omapName, map[string][]byte{
 				obj1.GetID(): marshalOrFail(obj1), // Populate with current structure
 			})
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("should successfully retrieve an existing object", func() {
+			err := omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred())
 			retrievedObj, err := omapStore.Get(ctx, obj1.GetID())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(retrievedObj).NotTo(BeNil())
@@ -219,7 +250,9 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should return store.ErrNotFound if the object does not exist", func() {
-			_, err := omapStore.Get(ctx, "nonexistent-id")
+			err := omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred())
+			_, err = omapStore.Get(ctx, "nonexistent-id")
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, store.ErrNotFound)).To(BeTrue())
 		})
@@ -228,7 +261,14 @@ var _ = Describe("Omap Store", func() {
 			mockConn.mu.Lock()
 			delete(mockConn.omaps, omapName)
 			mockConn.mu.Unlock()
-			_, err := omapStore.Get(ctx, obj1.GetID())
+
+			err := omapStore.InitializeCache()
+			if err != nil {
+				Expect(errors.Is(err, store.ErrNotFound)).To(BeTrue(), "InitializeCache should return ErrNotFound if OMAP is missing")
+				return
+			}
+
+			_, err = omapStore.Get(ctx, obj1.GetID())
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, store.ErrNotFound)).To(BeTrue()) // Get calls initializeCache which handles NotFound
 		})
@@ -236,36 +276,43 @@ var _ = Describe("Omap Store", func() {
 		It("should return an error if OpenIOContext fails during cache init", func() {
 			simulatedError := errors.New("get failed to open io context")
 			mockConn.SetFailOpenIOContext(simulatedError)
-			_, err := omapStore.Get(ctx, obj1.GetID()) // Call Get to trigger cache init
+			err := omapStore.InitializeCache()
 			Expect(err).To(HaveOccurred())
-			// Error occurs during cache initialization
-			Expect(err.Error()).To(ContainSubstring("failed to initialize cache for Get"))
+			Expect(err.Error()).To(ContainSubstring("failed to initialize"))
+			Expect(err.Error()).To(ContainSubstring(omapName)) // e.g., "test.omap"
 			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
 		})
 
 		It("should return an error if GetAllOmapValues fails during cache init", func() {
 			simulatedError := errors.New("ceph GetAllOmapValues failed")
-			// Clear existing data and set failure *before* Get is called
+
+			// Clear existing data and inject failure for cache initialization
 			mockConn.Clear()
 			mockConn.SetIOContextFailOp("GetAllOmapValues", simulatedError)
-			_, err := omapStore.Get(ctx, "any-id") // Call Get to trigger cache init
+
+			err := omapStore.InitializeCache()
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to initialize cache for Get"))
+			Expect(err.Error()).To(ContainSubstring("failed to initialize"))
+			Expect(err.Error()).To(ContainSubstring(omapName)) // e.g., "test.omap"
 			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
+
 			Expect(errors.Is(err, store.ErrNotFound)).To(BeFalse())
 		})
 
 		It("should return an error if JSON unmarshaling fails", func() {
-			// Populate with invalid JSON *before* Get triggers cache init
+			// Populate with invalid JSON before initialization
 			mockConn.Populate(omapName, map[string][]byte{
 				"invalid-json-id": []byte("<<<<"),
 			})
-			_, err := omapStore.Get(ctx, "invalid-json-id")
+
+			// Initialize the cache (swallows individual unmarshal failures to keep running)
+			err := omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred(), "Cache initialization itself should succeed even if one item is corrupt")
+			_, err = omapStore.Get(ctx, "invalid-json-id")
 			Expect(err).To(HaveOccurred())
-			// Check the specific error from unmarshaling within Get
 			Expect(err.Error()).To(ContainSubstring("failed to unmarshal object data for id \"invalid-json-id\""))
 			Expect(err.Error()).To(Or(
-				ContainSubstring("invalid character"), // Common JSON errors
+				ContainSubstring("invalid character"),
 				ContainSubstring("unexpected end"),
 			))
 			Expect(errors.Is(err, store.ErrNotFound)).To(BeFalse(), "Error should not be ErrNotFound")
@@ -287,7 +334,9 @@ var _ = Describe("Omap Store", func() {
 				oldObjID: marshalOrFail(oldObj),
 			})
 
-			// Call Get, which will read from cache (populated from mock OMAP)
+			err := omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred(), "Cache initialization should succeed with old data structure")
+
 			retrievedObj, err := omapStore.Get(ctx, oldObjID)
 			Expect(err).NotTo(HaveOccurred(), "Get should succeed even with old data structure")
 			Expect(retrievedObj).NotTo(BeNil())
@@ -436,16 +485,22 @@ var _ = Describe("Omap Store", func() {
 		It("should return ErrResourceVersionNotLatest if ResourceVersion does not match", func() {
 			objToUpdate.Spec = "update-attempt-wrong-version"
 			objToUpdate.SetResourceVersion(objToUpdate.GetResourceVersion() - 1) // Set wrong version
-
 			_, err := omapStore.Update(ctx, objToUpdate)
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, omap.ErrResourceVersionNotLatest)).To(BeTrue())
 
-			// Verify object was not actually updated
-			retrievedObj, getErr := omapStore.Get(ctx, objToUpdate.GetID())
-			Expect(getErr).NotTo(HaveOccurred())
-			Expect(retrievedObj.Spec).To(Equal("initial-spec"))
-			Expect(retrievedObj.GetResourceVersion()).To(Equal(uint64(5)))
+			mockConn.mu.Lock()
+			omapData, exists := mockConn.omaps[omapName]["update-id-1"]
+			mockConn.mu.Unlock()
+
+			Expect(exists).To(BeTrue(), "Object should still exist in the backend storage")
+
+			var verifiedObj mockObject
+			err = json.Unmarshal(omapData, &verifiedObj)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(verifiedObj.Spec).To(Equal("initial-spec"))            // Should still be the original spec
+			Expect(verifiedObj.GetResourceVersion()).To(Equal(uint64(5))) // Should still be the original version
 		})
 
 		It("should physically delete the object if DeletedAt is set and finalizers are empty (Update path)", func() {
@@ -537,6 +592,18 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should list all objects when the omap is not empty", func() {
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now initialize the cache with the populated objects inside the mock backend
+			err = omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred())
+
 			objList, err := omapStore.List(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(objList).To(HaveLen(3))
@@ -569,25 +636,46 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should return an error if GetAllOmapValues fails during cache init", func() {
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
+
 			simulatedError := errors.New("ceph GetAllOmapValues failed on list")
-			mockConn.Clear() // Clear first
+			mockConn.Clear()
 			mockConn.SetIOContextFailOp("GetAllOmapValues", simulatedError)
-			_, err := omapStore.List(ctx) // Call List to trigger cache init
+
+			err = omapStore.InitializeCache()
+
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to initialize cache for List"))
+			Expect(err.Error()).To(ContainSubstring("failed to initialize '" + omapName + "' cache"))
 			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
 			Expect(errors.Is(err, rados.ErrNotFound)).To(BeFalse())
 		})
 
 		It("should return an error if JSON unmarshaling fails for any object", func() {
-			// Populate with one valid and one invalid object
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
+
 			mockConn.Populate(omapName, map[string][]byte{
 				"valid-id":   marshalOrFail(newMockObject("valid-id", "spec")),
 				"invalid-id": []byte("<<<<< invalid json >>>>>"),
 			})
-			_, err := omapStore.List(ctx)
-			Expect(err).To(HaveOccurred())
-			// Check the specific error from unmarshaling within List
+
+			err = omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred(), "Cache initialization itself should complete even if an item is corrupt")
+
+			_, err = omapStore.List(ctx)
+			Expect(err).To(HaveOccurred(), "Expected List to return an error due to corrupt JSON data")
+
 			Expect(err.Error()).To(ContainSubstring("failed to unmarshal object data"))
 			Expect(err.Error()).To(Or(
 				ContainSubstring("invalid character"),
@@ -596,6 +684,14 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should successfully list objects including those stored with the old structure", func() {
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
+
 			oldObjID := "list-old-data-id"
 			oldObj := oldMockObject{
 				oldMetadata: oldMetadata{
@@ -605,11 +701,15 @@ var _ = Describe("Omap Store", func() {
 				},
 				Spec: "list-old-spec",
 			}
-			// Add old data alongside existing data
 			mockConn.Populate(omapName, map[string][]byte{
-				oldObjID: marshalOrFail(oldObj),
+				obj1.GetID(): marshalOrFail(obj1),
+				obj2.GetID(): marshalOrFail(obj2),
+				obj3.GetID(): marshalOrFail(obj3),
+				oldObjID:     marshalOrFail(oldObj),
 			})
 
+			err = omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred(), "Cache initialization should succeed with mixed old/new data")
 			objList, err := omapStore.List(ctx)
 			Expect(err).NotTo(HaveOccurred(), "List should succeed even with mixed old/new data")
 			Expect(objList).To(HaveLen(4)) // 3 existing + 1 old
@@ -645,9 +745,21 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should correctly List with many entries", func() {
+			opts := omap.Options[*mockObject]{
+				OmapName: omapName,
+				NewFunc:  func() *mockObject { return newMockObject("", "") },
+			}
+			var err error
+			omapStore, err = omap.New[*mockObject](mockConn, poolName, testLogger, opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = omapStore.InitializeCache()
+			Expect(err).NotTo(HaveOccurred(), "Cache initialization should succeed with many entries")
+
 			objList, err := omapStore.List(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(objList)).To(Equal(numEntries))
+
 			objMap := make(map[string]*mockObject) // Store pointer for easier access
 			for i := range objList {
 				obj := objList[i] // Get the object itself
@@ -907,8 +1019,6 @@ var _ = Describe("Omap Store", func() {
 		})
 
 		It("should return an error if cache initialization fails", func() {
-			// Simulate cache init failure *before* calling ListByLabels
-			// Create a *new* store instance for this test to ensure clean init state
 			localMockConn := newMockRadosConnection() // Use a local mock connection
 			storeForFailTest, err := omap.New[*mockObject](localMockConn, poolName, testLogger, omap.Options[*mockObject]{
 				OmapName: omapName,
@@ -922,15 +1032,11 @@ var _ = Describe("Omap Store", func() {
 
 			simulatedError := errors.New("simulated GetAllOmapValues failure")
 			localMockConn.SetIOContextFailOp("GetAllOmapValues", simulatedError) // Fail the OMAP read
-
-			selector := map[string]string{"app": "api"}
-			_, err = storeForFailTest.ListByLabels(ctx, selector) // This will trigger initializeCache on the new store
+			err = storeForFailTest.InitializeCache()
 
 			Expect(err).To(HaveOccurred(), "Expected an error due to cache initialization failure")
-			if err != nil { // Check error content only if it occurred
-				Expect(err.Error()).To(ContainSubstring("failed to initialize cache for ListByLabels"))
-				Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
-			}
+			Expect(err.Error()).To(ContainSubstring("failed to initialize '" + omapName + "' cache"))
+			Expect(err.Error()).To(ContainSubstring(simulatedError.Error()))
 		})
 
 		// Removed the test case "should return an error if unmarshaling fails during list"

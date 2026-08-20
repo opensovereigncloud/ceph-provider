@@ -1,6 +1,7 @@
 
 stages:
   - lint
+  - test
   - build
   - sync-with-upstream
 
@@ -160,6 +161,16 @@ go-lint:
   stage: lint
   script:
     - make lint
+
+test:
+  stage: test
+  image: mtr.devops.telekom.de/osc/common/golang:1.25.8-trixie
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends
+      libcephfs-dev
+      librbd-dev
+      librados-dev
+    - make test
 
 # Build Stages for volume and bucket components
 build-volume:
